@@ -1,47 +1,86 @@
 # Commercial release handoff
 
-Production is designed so the owner enters keys once and then runs workflows.
+Production is designed so the owner enters credentials once in the protected
+GitHub `production` environment and then runs three workflows. No key is stored
+in Git, a browser bundle, or a mobile application.
 
-## Required GitHub production environment values
+## One-time account setup
 
-Variables:
+1. Make this repository **Private**, give the release operator write access, and
+   create a protected GitHub environment named `production`.
+2. Deploy `infra/bootstrap/github-oidc.yml` once in the AWS account. Use its
+   output as `AWS_DEPLOY_ROLE_ARN`.
+3. Keep `builiconstruction.com` in the Cloudflare account used by the token.
+   Wrangler creates the `studio` and `studio-api` custom-domain records.
+4. Create Play Console and App Store Connect records for
+   `com.dajoong.plan2bim`.
+5. Enable Associated Domains and Sign in with Apple on that Apple identifier.
+6. Upload the content-addressed private model package described in
+   `PRIVATE_MODEL_DELIVERY.md` to the private S3 object named below.
 
-- `AWS_DEPLOY_ROLE_ARN`
-- `STUDIO_AWS_REGION` (default `us-west-2`)
-- `TF_STATE_REGION` (default `us-west-1`)
-- `CLOUDFLARE_ACCOUNT_ID`
-- `DAJOONG_MODEL_BUNDLE_S3_URI`
-- `APPLE_TEAM_ID`
-- `ANDROID_APP_LINK_SHA256` (Play signing certificate SHA-256 fingerprint)
-- `APP_REVIEW_FIRST_NAME`, `APP_REVIEW_LAST_NAME`, and `APP_REVIEW_NOTES`
+The Cognito provider callback is deterministic:
 
-Secrets:
+```text
+https://dajoong-plan2bim-production-<AWS_ACCOUNT_ID>.auth.<AWS_REGION>.amazoncognito.com/oauth2/idpresponse
+```
 
-- `CLOUDFLARE_API_TOKEN`
-- `DAJOONG_MODEL_BUNDLE_SHA256`
-- OAuth keys for Google, Apple, and Kakao
-- Android keystore, passwords, alias, and Google Play service-account JSON
-- Apple distribution certificate, password, App Store Connect key ID, issuer ID, and P8
-- App Review phone number and demo-account credentials
+Register that URL with Google, Apple, and Kakao before the first deployment.
 
-The exact secret names are validated by `.github/workflows/release-readiness.yml`.
+## GitHub environment variables
+
+| Name | Value |
+| --- | --- |
+| `AWS_DEPLOY_ROLE_ARN` | Bootstrap stack output |
+| `STUDIO_AWS_REGION` | Optional; defaults to `us-west-2` |
+| `TF_STATE_REGION` | Optional; defaults to `us-west-1` |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID |
+| `DAJOONG_MODEL_BUNDLE_S3_URI` | Private `s3://...tar.gz` URI |
+| `APPLE_TEAM_ID` | Ten-character Apple team ID |
+| `ANDROID_APP_LINK_SHA256` | Play signing certificate SHA-256 fingerprint |
+| `APP_REVIEW_FIRST_NAME` | Optional; defaults to `Paul` |
+| `APP_REVIEW_LAST_NAME` | Optional; defaults to `Cho` |
+| `APP_REVIEW_NOTES` | Optional review instructions |
+
+## GitHub environment secrets
+
+| Area | Exact secret names |
+| --- | --- |
+| Cloudflare/model | `CLOUDFLARE_API_TOKEN`, `DAJOONG_MODEL_BUNDLE_SHA256` |
+| Google login | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` |
+| Apple login | `APPLE_SERVICE_ID`, `APPLE_SIGN_IN_KEY_ID`, `APPLE_SIGN_IN_PRIVATE_KEY` |
+| Kakao login | `KAKAO_OIDC_CLIENT_ID`, `KAKAO_OIDC_CLIENT_SECRET` |
+| Android signing | `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_PASSWORD` |
+| Google Play | `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` |
+| Apple signing | `APPLE_DISTRIBUTION_CERTIFICATE_BASE64`, `APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD` |
+| App Store Connect | `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`, `APP_STORE_CONNECT_API_KEY_BASE64` |
+| Store review | `APP_REVIEW_PHONE`, `APP_REVIEW_DEMO_USER`, `APP_REVIEW_DEMO_PASSWORD` |
+
+Base64 values must contain the raw file bytes encoded without line wrapping.
+The Cloudflare token needs Workers Scripts edit, Workers Routes edit, DNS edit,
+and account/zone read access for `builiconstruction.com`.
 
 ## Release order
 
-1. Run `deploy-plan2bim-studio` to deploy the private converter, CPU workers,
-   Cognito, `studio-api.builiconstruction.com`, and `studio.builiconstruction.com`.
-2. Verify a real authenticated conversion and download from both web and mobile.
-3. Run `release-mobile` with publishing disabled and inspect the signed artifacts.
-4. Re-run `release-mobile` for the Play internal track and TestFlight.
-5. Submit the reviewed build from the same workflow.
+1. Run `release-readiness`. It fails with the exact missing key name and then
+   validates the private model, Python suite, server image, web suite, bundle
+   boundary, and store metadata.
+2. Run `deploy-plan2bim-studio`. It deploys the private converter, zero-idle CPU
+   workers, Cognito, `studio-api.builiconstruction.com`, and the Dajoong landing
+   and Studio at `studio.builiconstruction.com`.
+3. Complete one authenticated conversion on web and one installed test build.
+4. Run `release-mobile` with both publishing switches off. Inspect the signed
+   AAB and IPA artifacts.
+5. Run it again for the Play internal track and TestFlight. Only after review,
+   enable store submission or production release.
 
-## One-time console actions
+## Public production pages
 
-- Change this GitHub repository to **Private** and grant the release operator write access.
-- Protect the `production` environment with required reviewers.
-- Create the Play Console and App Store Connect records for `com.dajoong.plan2bim`.
-- Enable Associated Domains and Sign in with Apple for the Apple identifier.
-- Register Cognito callbacks shown in the deployment summary with Google, Apple, and Kakao.
-- Point the Cloudflare DNS/custom domains at the deployed Workers when first requested.
+- Web/Studio: `https://studio.builiconstruction.com/`
+- Privacy: `https://studio.builiconstruction.com/privacy`
+- Cookies: `https://studio.builiconstruction.com/cookies`
+- Terms: `https://studio.builiconstruction.com/terms`
+- Support: `https://studio.builiconstruction.com/support`
+- Account deletion: `https://studio.builiconstruction.com/account-deletion`
+- API health: `https://studio-api.builiconstruction.com/api/health`
 
 Support and privacy contact: `jjoonghui@gmail.com`.

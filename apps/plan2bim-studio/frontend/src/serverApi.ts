@@ -20,7 +20,7 @@ export function resolveStudioApiOrigin(
   if (development && LOOPBACK_HOSTS.has(url.hostname)) return origin;
   if (url.protocol !== "https:" || origin !== PRODUCTION_STUDIO_API_ORIGIN) {
     throw new Error(
-      `Studio clients may only use the BU iLI conversion service at ${PRODUCTION_STUDIO_API_ORIGIN}`,
+      `Studio clients may only use the Dajoong conversion service at ${PRODUCTION_STUDIO_API_ORIGIN}`,
     );
   }
   return origin;

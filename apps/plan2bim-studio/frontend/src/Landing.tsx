@@ -1,7 +1,6 @@
 import { ArrowRight, Box, Cpu, FileCheck2, Layers3, MousePointer2, ShieldCheck, Sparkles } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 
-import { CookieBanner } from "./components/CookieBanner";
 import { DajoongLogo } from "./components/DajoongLogo";
 import { ModelViewport } from "./components/ModelViewport";
 import type { PlanGraph } from "./types";
@@ -93,14 +92,13 @@ export function Landing() {
       </section>
 
       <section className="closing-section"><p>Start with the drawing.<br />Leave with a model you can own.</p><a href="/studio">Open Dajoong Studio <ArrowRight /></a></section>
-      <footer className="landing-footer"><DajoongLogo inverse /><div><a href="/privacy">Privacy</a><a href="/cookies">Cookies</a><a href="/terms">Terms</a><a href="mailto:jjoonghui@gmail.com">Contact</a></div><small>© 2026 Dajoong</small></footer>
+      <footer className="landing-footer"><DajoongLogo inverse /><div><a href="/privacy">Privacy</a><a href="/cookies">Cookies</a><a href="/terms">Terms</a><a href="/support">Support</a></div><small>© 2026 Dajoong</small></footer>
 
       {dialogOpen ? (
         <Suspense fallback={<div className="studio-tool-loading" role="status"><span />Opening conversion workspace</div>}>
           <ConversionDialog open onClose={() => setDialogOpen(false)} onStatus={setStatus} onComplete={(nextGraph, nextSource) => { setGraph(nextGraph); if (nextSource) setSourceUrl(nextSource); }} />
         </Suspense>
       ) : null}
-      <CookieBanner />
     </main>
   );
 }

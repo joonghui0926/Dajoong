@@ -36,9 +36,17 @@ jobs:
 
       - name: Validate required deployment keys
         shell: bash
+        env:
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          APPLE_SERVICE_ID: ${{ secrets.APPLE_SERVICE_ID }}
+          APPLE_SIGN_IN_KEY_ID: ${{ secrets.APPLE_SIGN_IN_KEY_ID }}
+          APPLE_SIGN_IN_PRIVATE_KEY: ${{ secrets.APPLE_SIGN_IN_PRIVATE_KEY }}
+          KAKAO_OIDC_CLIENT_ID: ${{ secrets.KAKAO_OIDC_CLIENT_ID }}
+          KAKAO_OIDC_CLIENT_SECRET: ${{ secrets.KAKAO_OIDC_CLIENT_SECRET }}
         run: |
           set -euo pipefail
-          for name in AWS_DEPLOY_ROLE_ARN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID MODEL_BUNDLE_URI MODEL_BUNDLE_SHA256 APPLE_TEAM_ID ANDROID_APP_LINK_SHA256; do
+          for name in AWS_DEPLOY_ROLE_ARN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID MODEL_BUNDLE_URI MODEL_BUNDLE_SHA256 APPLE_TEAM_ID ANDROID_APP_LINK_SHA256 GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET APPLE_SERVICE_ID APPLE_SIGN_IN_KEY_ID APPLE_SIGN_IN_PRIVATE_KEY KAKAO_OIDC_CLIENT_ID KAKAO_OIDC_CLIENT_SECRET; do
             test -n "${!name:-}" || { echo "Missing production setting: $name" >&2; exit 1; }
           done
 
@@ -207,6 +215,9 @@ jobs:
           set -euo pipefail
           curl --fail --retry 30 --retry-delay 10 --retry-all-errors https://studio-api.builiconstruction.com/api/health
           curl --fail --retry 20 --retry-delay 5 --retry-all-errors https://studio.builiconstruction.com/studio
+          for path in privacy cookies terms support account-deletion; do
+            curl --fail --retry 10 --retry-delay 3 --retry-all-errors "https://studio.builiconstruction.com/$path"
+          done
           status=$(curl -sS -o /dev/null -w '%{http_code}' https://studio-api.builiconstruction.com/api/jobs)
           test "$status" = "401" || { echo "Expected authenticated public jobs route to return 401, got $status" >&2; exit 1; }
           service_url=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw api_service_url)
@@ -229,4 +240,6 @@ jobs:
       - name: Remove private model material
         if: always()
         shell: bash
-        run: rm -f "$RUNNER_TEMP/private-models.tar.gz" modules/plan2bim/src/buili_plan2bim/models/*.onnx
+        run: |
+          rm -f "$RUNNER_TEMP/private-models.tar.gz"
+          find modules/plan2bim/src/buili_plan2bim/models -maxdepth 1 -type f ! -name '__init__.py' -delete

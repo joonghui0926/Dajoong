@@ -1,6 +1,4 @@
-output "web_bucket" { value = aws_s3_bucket.web.id }
 output "artifact_bucket" { value = aws_s3_bucket.artifacts.id }
-output "cloudfront_domain" { value = aws_cloudfront_distribution.web.domain_name }
 output "api_repository" { value = aws_ecr_repository.api.repository_url }
 output "worker_repository" { value = aws_ecr_repository.worker.repository_url }
 output "api_service_url" { value = aws_apprunner_service.api.service_url }

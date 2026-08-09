@@ -1,11 +1,18 @@
 import { useState } from "react";
 import { authFetch, signOut } from "../auth";
+import { readConsent, saveConsent } from "../consent";
 import { studioApiUrl } from "../serverApi";
 
 export function AccountDialog({ onClose }: { onClose: () => void }) {
   const [confirmation, setConfirmation] = useState("");
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [analytics, setAnalytics] = useState(() => readConsent()?.analytics ?? false);
+
+  const chooseAnalytics = (next: boolean) => {
+    const saved = saveConsent(next);
+    setAnalytics(saved.analytics);
+  };
 
   const deleteAccount = async () => {
     setSubmitting(true);
@@ -31,6 +38,14 @@ export function AccountDialog({ onClose }: { onClose: () => void }) {
     <section className="conversion-dialog account-dialog" role="dialog" aria-modal="true" aria-labelledby="account-dialog-title">
       <div className="dialog-header"><div><span className="eyebrow">ACCOUNT</span><h2 id="account-dialog-title">Account and privacy</h2></div><button type="button" onClick={onClose} aria-label="Close account settings">Close</button></div>
       <div className="account-dialog-copy">
+        <section className="account-privacy-choice" aria-labelledby="privacy-choice-title">
+          <h3 id="privacy-choice-title">Privacy choices</h3>
+          <p>Essential storage supports sign-in and recoverable editor state. Optional analytics never reads project drawings.</p>
+          <div role="group" aria-label="Optional analytics choice">
+            <button type="button" aria-pressed={!analytics} onClick={() => chooseAnalytics(false)}>Essential only</button>
+            <button type="button" aria-pressed={analytics} onClick={() => chooseAnalytics(true)}>Allow analytics</button>
+          </div>
+        </section>
         <p>Deleting your account removes your sign-in and personal conversion jobs. Organization-owned project records may remain under the organization&apos;s contract and retention policy.</p>
         <a href="/account-deletion" target="_blank" rel="noreferrer">Read the account deletion policy</a>
         <label>Type <strong>DELETE</strong> to confirm<input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" /></label>

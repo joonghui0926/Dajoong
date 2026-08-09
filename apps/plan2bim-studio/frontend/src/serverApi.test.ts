@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { isTrustedStudioApiRequest, resolveStudioApiOrigin, studioApiUrl } from "./serverApi";
 
-describe("BU iLI server-only client boundary", () => {
+describe("Dajoong server-only client boundary", () => {
   it("defaults production builds to the canonical conversion API", () => {
     expect(resolveStudioApiOrigin(undefined, false)).toBe("https://studio-api.builiconstruction.com");
   });
@@ -13,7 +13,7 @@ describe("BU iLI server-only client boundary", () => {
   });
 
   it("rejects alternate production inference services", () => {
-    expect(() => resolveStudioApiOrigin("https://example.com", false)).toThrow(/BU iLI/i);
+    expect(() => resolveStudioApiOrigin("https://example.com", false)).toThrow(/Dajoong/i);
     expect(() => resolveStudioApiOrigin("https://studio-api.builiconstruction.com/proxy", false)).toThrow(/origin only/i);
   });
 

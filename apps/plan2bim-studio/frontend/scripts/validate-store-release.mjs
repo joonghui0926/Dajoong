@@ -9,8 +9,13 @@ const assert = (condition, message) => { if (!condition) throw new Error(message
 const declaration = JSON.parse(await read('store/release-declaration.json'));
 assert(declaration.app.bundleId === 'com.dajoong.plan2bim', 'Store bundle ID drifted');
 assert(declaration.app.supportEmail === 'jjoonghui@gmail.com', 'Store support email drifted');
-for (const url of ['supportUrl', 'privacyUrl', 'accountDeletionUrl']) {
-  assert(new URL(declaration.app[url]).protocol === 'https:', `${url} must use HTTPS`);
+const requiredPublicUrls = {
+  supportUrl: 'https://studio.builiconstruction.com/support',
+  privacyUrl: 'https://studio.builiconstruction.com/privacy',
+  accountDeletionUrl: 'https://studio.builiconstruction.com/account-deletion',
+};
+for (const [name, expected] of Object.entries(requiredPublicUrls)) {
+  assert(declaration.app[name] === expected, `${name} must stay on the deployed Dajoong .com domain`);
 }
 assert(declaration.privacy.tracking === false && declaration.privacy.sold === false, 'Privacy declaration must fail closed');
 

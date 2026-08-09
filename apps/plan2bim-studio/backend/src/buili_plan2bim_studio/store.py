@@ -18,6 +18,7 @@ class StudioJob(BaseModel):
     output_dir: str
     owner_id: str = ""
     organization_id: str = ""
+    expires_at: int = 0
     error: str = ""
     result: dict[str, Any] = Field(default_factory=dict)
 

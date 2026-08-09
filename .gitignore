@@ -53,7 +53,7 @@ apps/plan2bim-studio/frontend/public/.well-known/
 *.tfstate
 *.tfstate.*
 .terraform/
-.terraform.lock.hcl
+artifacts/
 .data/
 tmp/
 *.log

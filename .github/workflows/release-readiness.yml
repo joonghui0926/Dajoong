@@ -17,15 +17,40 @@ jobs:
       MODEL_BUNDLE_URI: ${{ vars.DAJOONG_MODEL_BUNDLE_S3_URI }}
       MODEL_BUNDLE_SHA256: ${{ secrets.DAJOONG_MODEL_BUNDLE_SHA256 }}
       VITE_STUDIO_API_URL: https://studio-api.builiconstruction.com
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      ANDROID_APP_LINK_SHA256: ${{ vars.ANDROID_APP_LINK_SHA256 }}
+      GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+      APPLE_SERVICE_ID: ${{ secrets.APPLE_SERVICE_ID }}
+      APPLE_SIGN_IN_KEY_ID: ${{ secrets.APPLE_SIGN_IN_KEY_ID }}
+      APPLE_SIGN_IN_PRIVATE_KEY: ${{ secrets.APPLE_SIGN_IN_PRIVATE_KEY }}
+      KAKAO_OIDC_CLIENT_ID: ${{ secrets.KAKAO_OIDC_CLIENT_ID }}
+      KAKAO_OIDC_CLIENT_SECRET: ${{ secrets.KAKAO_OIDC_CLIENT_SECRET }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+      APPLE_DISTRIBUTION_CERTIFICATE_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}
+      APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+      APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+      APP_REVIEW_PHONE: ${{ secrets.APP_REVIEW_PHONE }}
+      APP_REVIEW_DEMO_USER: ${{ secrets.APP_REVIEW_DEMO_USER }}
+      APP_REVIEW_DEMO_PASSWORD: ${{ secrets.APP_REVIEW_DEMO_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
-      - name: Validate private model inputs
+      - name: Validate every production key
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${{ vars.AWS_DEPLOY_ROLE_ARN }}" || { echo 'Missing AWS_DEPLOY_ROLE_ARN' >&2; exit 1; }
-          test -n "$MODEL_BUNDLE_URI" || { echo 'Missing DAJOONG_MODEL_BUNDLE_S3_URI' >&2; exit 1; }
-          test -n "$MODEL_BUNDLE_SHA256" || { echo 'Missing DAJOONG_MODEL_BUNDLE_SHA256' >&2; exit 1; }
+          export AWS_DEPLOY_ROLE_ARN='${{ vars.AWS_DEPLOY_ROLE_ARN }}'
+          for name in AWS_DEPLOY_ROLE_ARN MODEL_BUNDLE_URI MODEL_BUNDLE_SHA256 CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID APPLE_TEAM_ID ANDROID_APP_LINK_SHA256 GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET APPLE_SERVICE_ID APPLE_SIGN_IN_KEY_ID APPLE_SIGN_IN_PRIVATE_KEY KAKAO_OIDC_CLIENT_ID KAKAO_OIDC_CLIENT_SECRET ANDROID_KEYSTORE_BASE64 ANDROID_KEY_ALIAS ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_PASSWORD GOOGLE_PLAY_SERVICE_ACCOUNT_JSON APPLE_DISTRIBUTION_CERTIFICATE_BASE64 APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD APP_STORE_CONNECT_API_KEY_ID APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_API_KEY_BASE64 APP_REVIEW_PHONE APP_REVIEW_DEMO_USER APP_REVIEW_DEMO_PASSWORD; do
+            test -n "${!name:-}" || { echo "Missing production setting: $name" >&2; exit 1; }
+          done
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
@@ -55,4 +80,6 @@ jobs:
       - name: Remove private model material
         if: always()
         shell: bash
-        run: rm -f "$RUNNER_TEMP/private-models.tar.gz" modules/plan2bim/src/buili_plan2bim/models/*.onnx
+        run: |
+          rm -f "$RUNNER_TEMP/private-models.tar.gz"
+          find modules/plan2bim/src/buili_plan2bim/models -maxdepth 1 -type f ! -name '__init__.py' -delete

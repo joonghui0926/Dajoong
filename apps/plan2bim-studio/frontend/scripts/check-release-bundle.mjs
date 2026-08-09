@@ -34,7 +34,7 @@ for (const marker of forbiddenRuntimeMarkers) {
   }
 }
 if (!bundleText.includes('studio-api.builiconstruction.com')) {
-  throw new Error('Client bundle does not contain the canonical BU iLI conversion API boundary');
+  throw new Error('Client bundle does not contain the canonical Dajoong conversion API boundary');
 }
 if (/\b(?:AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,})\b/.test(bundleText)) {
   throw new Error('Client bundle appears to contain a server credential');

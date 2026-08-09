@@ -85,7 +85,7 @@ export function setBearerToken(token: string) {
 
 export function authFetch(input: RequestInfo | URL, init: RequestInit = {}) {
   if (!isTrustedStudioApiRequest(input)) {
-    return Promise.reject(new Error("Blocked a request outside the BU iLI conversion service"));
+    return Promise.reject(new Error("Blocked a request outside the Dajoong conversion service"));
   }
   if (!bearerToken) return fetch(input, init);
   const headers = new Headers(init.headers);

@@ -45,7 +45,7 @@ Declare as collected:
 
 For every collected category: data is encrypted in transit, is not used for
 advertising, and is not sold. Users can request deletion from inside the app or
-through `https://builiconstruction.com/account-deletion`.
+through `https://studio.builiconstruction.com/account-deletion`.
 
 Answer **No** for precise/approximate location, contacts, financial information,
 health, messages, audio, browsing history, advertising identifiers, and device
@@ -63,8 +63,8 @@ site. The system browser handles OAuth and PKCE.
 
 ## Public contacts
 
-- Privacy: `https://builiconstruction.com/privacy`
-- Cookies: `https://builiconstruction.com/cookies`
-- Support: `https://builiconstruction.com/support`
-- Account deletion: `https://builiconstruction.com/account-deletion`
+- Privacy: `https://studio.builiconstruction.com/privacy`
+- Cookies: `https://studio.builiconstruction.com/cookies`
+- Support: `https://studio.builiconstruction.com/support`
+- Account deletion: `https://studio.builiconstruction.com/account-deletion`
 - Contact: `jjoonghui@gmail.com`

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -22,6 +23,7 @@ class AwsJobGateway:
             raise RuntimeError("Install the backend with the aws extra") from exc
         self.bucket = os.environ["DAJOONG_ARTIFACT_BUCKET"]
         self.table_name = os.environ["DAJOONG_JOB_TABLE"]
+        self.owner_index_name = os.environ.get("DAJOONG_OWNER_INDEX_NAME", "owner-id-index")
         self.queue_url = os.environ["DAJOONG_JOB_QUEUE_URL"]
         region = os.environ.get("AWS_REGION", "us-west-2")
         self.s3 = boto3.client("s3", region_name=region)
@@ -29,10 +31,17 @@ class AwsJobGateway:
         self.sqs = boto3.client("sqs", region_name=region)
         self.cognito = boto3.client("cognito-idp", region_name=region)
         self.user_pool_id = os.environ.get("DAJOONG_USER_POOL_ID", "")
+        retention_days = int(os.environ.get("DAJOONG_ARTIFACT_RETENTION_DAYS", "90"))
+        if not 1 <= retention_days <= 3650:
+            raise RuntimeError("DAJOONG_ARTIFACT_RETENTION_DAYS must be between 1 and 3650")
+        self.retention_seconds = retention_days * 86_400
 
     @staticmethod
     def _prefix(job_id: str) -> str:
         return f"jobs/{job_id}"
+
+    def _expires_at(self) -> int:
+        return int(time.time()) + self.retention_seconds
 
     def create_job(
         self,
@@ -53,6 +62,7 @@ class AwsJobGateway:
             output_dir=f"s3://{self.bucket}/{self._prefix(job_id)}/output",
             owner_id=owner_id,
             organization_id=organization_id,
+            expires_at=self._expires_at(),
         )
         self.save(job)
         message = json.dumps(
@@ -93,6 +103,7 @@ class AwsJobGateway:
             output_dir=f"s3://{self.bucket}/{self._prefix(job_id)}/output",
             owner_id=owner_id,
             organization_id=organization_id,
+            expires_at=self._expires_at(),
         )
         self.save(job)
         message = json.dumps(
@@ -113,18 +124,21 @@ class AwsJobGateway:
         return job
 
     def save(self, job: StudioJob) -> None:
+        item = {
+            "job_id": {"S": job.id},
+            "status": {"S": job.status},
+            "source_name": {"S": job.source_name},
+            "output_dir": {"S": job.output_dir},
+            "organization_id": {"S": job.organization_id},
+            "expires_at": {"N": str(job.expires_at or self._expires_at())},
+            "error": {"S": job.error},
+            "result_json": {"S": json.dumps(job.result, separators=(",", ":"))},
+        }
+        if job.owner_id:
+            item["owner_id"] = {"S": job.owner_id}
         self.ddb.put_item(
             TableName=self.table_name,
-            Item={
-                "job_id": {"S": job.id},
-                "status": {"S": job.status},
-                "source_name": {"S": job.source_name},
-                "output_dir": {"S": job.output_dir},
-                "owner_id": {"S": job.owner_id},
-                "organization_id": {"S": job.organization_id},
-                "error": {"S": job.error},
-                "result_json": {"S": json.dumps(job.result, separators=(",", ":"))},
-            },
+            Item=item,
         )
 
     def create_imported_graph(
@@ -143,6 +157,7 @@ class AwsJobGateway:
             output_dir=f"s3://{self.bucket}/{self._prefix(job_id)}/output",
             owner_id=owner_id,
             organization_id=organization_id,
+            expires_at=self._expires_at(),
             result={
                 "plan_graph_path": f"s3://{self.bucket}/{self._prefix(job_id)}/output/03-plan-graph.json"
             },
@@ -169,6 +184,7 @@ class AwsJobGateway:
             output_dir=item["output_dir"]["S"],
             owner_id=item.get("owner_id", {}).get("S", ""),
             organization_id=item.get("organization_id", {}).get("S", ""),
+            expires_at=int(item.get("expires_at", {}).get("N", "0")),
             error=item.get("error", {}).get("S", ""),
             result=json.loads(item.get("result_json", {}).get("S", "{}")),
         )
@@ -323,26 +339,36 @@ class AwsJobGateway:
         while True:
             parameters: dict[str, Any] = {
                 "TableName": self.table_name,
-                "FilterExpression": "owner_id = :owner_id",
+                "IndexName": self.owner_index_name,
+                "KeyConditionExpression": "owner_id = :owner_id",
                 "ExpressionAttributeValues": {":owner_id": {"S": owner_id}},
                 "ProjectionExpression": "job_id, organization_id",
             }
             if start_key:
                 parameters["ExclusiveStartKey"] = start_key
-            page = self.ddb.scan(**parameters)
+            page = self.ddb.query(**parameters)
             for item in page.get("Items", []):
                 # Organization-owned construction records follow the customer retention policy.
                 if item.get("organization_id", {}).get("S", ""):
                     continue
                 job_id = item["job_id"]["S"]
                 prefix = f"{self._prefix(job_id)}/"
-                continuation: str | None = None
+                key_marker: str | None = None
+                version_marker: str | None = None
                 while True:
                     listing_parameters: dict[str, Any] = {"Bucket": self.bucket, "Prefix": prefix}
-                    if continuation:
-                        listing_parameters["ContinuationToken"] = continuation
-                    listing = self.s3.list_objects_v2(**listing_parameters)
-                    objects = [{"Key": entry["Key"]} for entry in listing.get("Contents", [])]
+                    if key_marker:
+                        listing_parameters["KeyMarker"] = key_marker
+                    if version_marker:
+                        listing_parameters["VersionIdMarker"] = version_marker
+                    listing = self.s3.list_object_versions(**listing_parameters)
+                    objects = [
+                        {"Key": entry["Key"], "VersionId": entry["VersionId"]}
+                        for entry in [
+                            *listing.get("Versions", []),
+                            *listing.get("DeleteMarkers", []),
+                        ]
+                    ]
                     if objects:
                         self.s3.delete_objects(
                             Bucket=self.bucket,
@@ -350,7 +376,8 @@ class AwsJobGateway:
                         )
                     if not listing.get("IsTruncated"):
                         break
-                    continuation = listing.get("NextContinuationToken")
+                    key_marker = listing.get("NextKeyMarker")
+                    version_marker = listing.get("NextVersionIdMarker")
                 self.ddb.delete_item(TableName=self.table_name, Key={"job_id": {"S": job_id}})
                 deleted_jobs += 1
             start_key = page.get("LastEvaluatedKey")

@@ -5,20 +5,8 @@ locals {
   name = "dajoong-plan2bim-${var.environment}"
 }
 
-resource "aws_s3_bucket" "web" {
-  bucket = "${local.name}-web-${data.aws_caller_identity.current.account_id}"
-}
-
 resource "aws_s3_bucket" "artifacts" {
   bucket = "${local.name}-artifacts-${data.aws_caller_identity.current.account_id}"
-}
-
-resource "aws_s3_bucket_public_access_block" "web" {
-  bucket                  = aws_s3_bucket.web.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
 }
 
 resource "aws_s3_bucket_public_access_block" "artifacts" {
@@ -62,7 +50,21 @@ resource "aws_dynamodb_table" "jobs" {
     name = "job_id"
     type = "S"
   }
+  attribute {
+    name = "owner_id"
+    type = "S"
+  }
+  global_secondary_index {
+    name               = "owner-id-index"
+    hash_key           = "owner_id"
+    projection_type    = "INCLUDE"
+    non_key_attributes = ["organization_id"]
+  }
   point_in_time_recovery { enabled = true }
+  ttl {
+    attribute_name = "expires_at"
+    enabled        = true
+  }
 }
 
 resource "aws_sqs_queue" "dead_letter" {
@@ -148,16 +150,29 @@ resource "aws_iam_role" "runtime" {
 
 data "aws_iam_policy_document" "runtime" {
   statement {
-    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:DeleteObjectVersion"]
     resources = ["${aws_s3_bucket.artifacts.arn}/jobs/*"]
+  }
+  statement {
+    actions   = ["s3:ListBucket", "s3:ListBucketVersions"]
+    resources = [aws_s3_bucket.artifacts.arn]
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["jobs/*"]
+    }
   }
   statement {
     actions   = ["cognito-idp:AdminDeleteUser"]
     resources = [aws_cognito_user_pool.users.arn]
   }
   statement {
-    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"]
     resources = [aws_dynamodb_table.jobs.arn]
+  }
+  statement {
+    actions   = ["dynamodb:Query"]
+    resources = ["${aws_dynamodb_table.jobs.arn}/index/owner-id-index"]
   }
   statement {
     actions   = ["sqs:SendMessage", "sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"]
@@ -229,16 +244,18 @@ resource "aws_apprunner_service" "api" {
       image_configuration {
         port = "8042"
         runtime_environment_variables = {
-          DAJOONG_RUNTIME         = "aws"
-          DAJOONG_ARTIFACT_BUCKET = aws_s3_bucket.artifacts.id
-          DAJOONG_JOB_TABLE       = aws_dynamodb_table.jobs.name
-          DAJOONG_JOB_QUEUE_URL   = aws_sqs_queue.jobs.url
-          DAJOONG_STUDIO_ORIGINS  = var.cors_origins
-          DAJOONG_REQUIRE_AUTH    = "true"
-          DAJOONG_AUTH_ISSUER     = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.users.id}"
-          DAJOONG_AUTH_AUDIENCE   = aws_cognito_user_pool_client.web.id
-          DAJOONG_USER_POOL_ID    = aws_cognito_user_pool.users.id
-          AWS_REGION              = var.aws_region
+          DAJOONG_RUNTIME                 = "aws"
+          DAJOONG_ARTIFACT_BUCKET         = aws_s3_bucket.artifacts.id
+          DAJOONG_JOB_TABLE               = aws_dynamodb_table.jobs.name
+          DAJOONG_JOB_QUEUE_URL           = aws_sqs_queue.jobs.url
+          DAJOONG_STUDIO_ORIGINS          = var.cors_origins
+          DAJOONG_REQUIRE_AUTH            = "true"
+          DAJOONG_AUTH_ISSUER             = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.users.id}"
+          DAJOONG_AUTH_AUDIENCE           = aws_cognito_user_pool_client.web.id
+          DAJOONG_USER_POOL_ID            = aws_cognito_user_pool.users.id
+          DAJOONG_OWNER_INDEX_NAME        = "owner-id-index"
+          DAJOONG_ARTIFACT_RETENTION_DAYS = tostring(var.artifact_retention_days)
+          AWS_REGION                      = var.aws_region
         }
         runtime_environment_secrets = var.origin_secret_arn == "" ? {} : {
           DAJOONG_ORIGIN_VERIFY_SECRET = var.origin_secret_arn
@@ -333,6 +350,7 @@ resource "aws_ecs_task_definition" "worker" {
       { name = "DAJOONG_JOB_TABLE", value = aws_dynamodb_table.jobs.name },
       { name = "DAJOONG_JOB_QUEUE_URL", value = aws_sqs_queue.jobs.url },
       { name = "DAJOONG_USER_POOL_ID", value = aws_cognito_user_pool.users.id },
+      { name = "DAJOONG_ARTIFACT_RETENTION_DAYS", value = tostring(var.artifact_retention_days) },
       { name = "AWS_REGION", value = var.aws_region },
     ]
     logConfiguration = {
@@ -422,85 +440,34 @@ resource "aws_cloudwatch_metric_alarm" "worker_in" {
   alarm_name          = "${local.name}-queue-idle"
   comparison_operator = "LessThanThreshold"
   evaluation_periods  = 5
-  metric_name         = "ApproximateNumberOfMessagesVisible"
-  namespace           = "AWS/SQS"
-  period              = 60
-  statistic           = "Maximum"
   threshold           = 1
-  dimensions          = { QueueName = aws_sqs_queue.jobs.name }
   alarm_actions       = [aws_appautoscaling_policy.worker_in.arn]
-}
 
-resource "aws_cloudfront_origin_access_control" "web" {
-  name                              = "${local.name}-web"
-  origin_access_control_origin_type = "s3"
-  signing_behavior                  = "always"
-  signing_protocol                  = "sigv4"
-}
-
-resource "aws_cloudfront_distribution" "web" {
-  enabled             = true
-  default_root_object = "index.html"
-  price_class         = "PriceClass_100"
-
-  origin {
-    domain_name              = aws_s3_bucket.web.bucket_regional_domain_name
-    origin_id                = "web"
-    origin_access_control_id = aws_cloudfront_origin_access_control.web.id
+  metric_query {
+    id          = "backlog"
+    expression  = "visible + running"
+    label       = "Visible and in-flight jobs"
+    return_data = true
   }
-
-  origin {
-    domain_name = aws_apprunner_service.api.service_url
-    origin_id   = "api"
-    custom_origin_config {
-      http_port              = 80
-      https_port             = 443
-      origin_protocol_policy = "https-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
+  metric_query {
+    id = "visible"
+    metric {
+      metric_name = "ApproximateNumberOfMessagesVisible"
+      namespace   = "AWS/SQS"
+      period      = 60
+      stat        = "Maximum"
+      dimensions  = { QueueName = aws_sqs_queue.jobs.name }
     }
   }
-
-  default_cache_behavior {
-    target_origin_id       = "web"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
-    cached_methods         = ["GET", "HEAD"]
-    forwarded_values {
-      query_string = false
-      cookies {
-        forward = "none"
-      }
+  metric_query {
+    id = "running"
+    metric {
+      metric_name = "ApproximateNumberOfMessagesNotVisible"
+      namespace   = "AWS/SQS"
+      period      = 60
+      stat        = "Maximum"
+      dimensions  = { QueueName = aws_sqs_queue.jobs.name }
     }
-  }
-
-  ordered_cache_behavior {
-    path_pattern             = "/api/*"
-    target_origin_id         = "api"
-    viewer_protocol_policy   = "https-only"
-    allowed_methods          = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
-    cached_methods           = ["GET", "HEAD"]
-    cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
-    origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac"
-  }
-
-  custom_error_response {
-    error_code         = 403
-    response_code      = 200
-    response_page_path = "/index.html"
-  }
-  custom_error_response {
-    error_code         = 404
-    response_code      = 200
-    response_page_path = "/index.html"
-  }
-  restrictions {
-    geo_restriction {
-      restriction_type = "none"
-    }
-  }
-  viewer_certificate {
-    cloudfront_default_certificate = true
-    minimum_protocol_version       = "TLSv1.2_2021"
   }
 }
 
@@ -509,25 +476,4 @@ resource "aws_apprunner_auto_scaling_configuration_version" "api" {
   max_concurrency                 = 80
   max_size                        = 5
   min_size                        = 1
-}
-
-data "aws_iam_policy_document" "web_bucket" {
-  statement {
-    actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.web.arn}/*"]
-    principals {
-      type        = "Service"
-      identifiers = ["cloudfront.amazonaws.com"]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "AWS:SourceArn"
-      values   = [aws_cloudfront_distribution.web.arn]
-    }
-  }
-}
-
-resource "aws_s3_bucket_policy" "web" {
-  bucket = aws_s3_bucket.web.id
-  policy = data.aws_iam_policy_document.web_bucket.json
 }
