@@ -71,10 +71,28 @@ assert(/targetSdkVersion\s*=\s*36\b/.test(androidVariables), 'Android targetSdkV
 const manifest = await read('android/app/src/main/AndroidManifest.xml');
 assert(manifest.includes('android:usesCleartextTraffic="false"'), 'Android cleartext traffic must stay disabled');
 assert(manifest.includes('android:allowBackup="false"'), 'Android backup must stay disabled');
+assert(manifest.includes('android:autoVerify="true"'), 'Android App Links must stay verified');
+assert(manifest.includes('android:host="app.builiconstruction.com"'), 'Android app link host drifted');
+assert(manifest.includes('android:host="studio.builiconstruction.com"'), 'Android Studio link host drifted');
+assert(manifest.includes('android:scheme="com.dajoong.plan2bim"'), 'Android OAuth callback scheme drifted');
 const privacyManifest = await read('ios/App/App/PrivacyInfo.xcprivacy');
 assert(privacyManifest.includes('<key>NSPrivacyTracking</key>') && privacyManifest.includes('<false/>'), 'iOS privacy manifest must declare no tracking');
+assert(privacyManifest.includes('<key>NSPrivacyAccessedAPITypes</key>'), 'iOS privacy manifest must explicitly declare required-reason API use');
+const entitlements = await read('ios/App/App/App.entitlements');
+assert(entitlements.includes('com.apple.developer.applesignin') && entitlements.includes('<string>Default</string>'), 'iOS Sign in with Apple entitlement is required');
+assert(entitlements.includes('applinks:app.builiconstruction.com') && entitlements.includes('applinks:studio.builiconstruction.com'), 'iOS associated domains drifted');
 const pbx = await read('ios/App/App.xcodeproj/project.pbxproj');
 assert(pbx.includes('PRODUCT_BUNDLE_IDENTIFIER = com.dajoong.plan2bim;'), 'iOS bundle ID drifted');
+assert(pbx.includes('com.apple.SignInWithApple') && pbx.includes('com.apple.AssociatedDomains'), 'iOS target capabilities drifted');
+
+const webWorkerConfig = await read('../infra/cloudflare/wrangler.web.jsonc');
+for (const host of ['builiconstruction.com', 'www.builiconstruction.com', 'studio.builiconstruction.com', 'app.builiconstruction.com']) {
+  assert(webWorkerConfig.includes(`"pattern": "${host}"`), `Cloudflare custom domain missing: ${host}`);
+}
+const webWorker = await read('../infra/cloudflare/studio-web-worker.ts');
+assert(webWorker.includes("const MARKETING_HOST = 'builiconstruction.com'"), 'Marketing apex host guard drifted');
+assert(webWorker.includes("const STUDIO_HOST = 'studio.builiconstruction.com'"), 'Studio host guard drifted');
+assert(webWorker.includes('ASSOCIATION_PATHS'), 'Native association files must bypass hostname redirects');
 
 const protectedPattern = /\.(?:onnx|pt|pth|ckpt|safetensors|pem|p12|jks|keystore)$/i;
 for (const directory of ['dist', 'android/app/src/main/assets/public']) {

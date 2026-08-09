@@ -75,7 +75,7 @@ jobs:
           cache-dependency-path: apps/plan2bim-studio/frontend/package-lock.json
       - run: npm ci
         working-directory: apps/plan2bim-studio/frontend
-      - run: npm test && npm run build && npm run store:validate
+      - run: npm run links:prepare && npm test && npm run build && npm run store:validate
         working-directory: apps/plan2bim-studio/frontend
       - name: Remove private model material
         if: always()

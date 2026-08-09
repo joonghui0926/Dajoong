@@ -2,9 +2,14 @@ interface Env {
   ASSETS: Fetcher;
 }
 
-const WEB_HOST = 'studio.builiconstruction.com';
+const MARKETING_HOST = 'builiconstruction.com';
+const WWW_HOST = 'www.builiconstruction.com';
+const STUDIO_HOST = 'studio.builiconstruction.com';
+const APP_LINK_HOST = 'app.builiconstruction.com';
+const ALLOWED_HOSTS = new Set([MARKETING_HOST, WWW_HOST, STUDIO_HOST, APP_LINK_HOST]);
+const ASSOCIATION_PATHS = new Set(['/.well-known/apple-app-site-association', '/.well-known/assetlinks.json']);
 
-function secure(response: Response): Response {
+function secure(response: Response, requestUrl: URL): Response {
   const headers = new Headers(response.headers);
   headers.set('Content-Security-Policy', [
     "default-src 'self'",
@@ -26,21 +31,42 @@ function secure(response: Response): Response {
   headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   headers.set('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
   headers.set('Cross-Origin-Resource-Policy', 'same-site');
-  if (new URL(response.url).pathname.startsWith('/.well-known/')) {
+  if (requestUrl.pathname.startsWith('/.well-known/')) {
     headers.set('Content-Type', 'application/json; charset=utf-8');
     headers.set('Cache-Control', 'public, max-age=300');
   }
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
+function permanentRedirect(url: URL, hostname: string): Response {
+  const target = new URL(url);
+  target.protocol = 'https:';
+  target.hostname = hostname;
+  target.port = '';
+  return Response.redirect(target.toString(), 308);
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (url.hostname !== WEB_HOST) return new Response('Not Found', { status: 404 });
+    if (!ALLOWED_HOSTS.has(url.hostname)) return secure(new Response('Not Found', { status: 404 }), url);
+
+    // Association files must be served directly from every native-app hostname;
+    // redirecting these verification requests can make Universal/App Links fail.
+    if (ASSOCIATION_PATHS.has(url.pathname)) {
+      return secure(await env.ASSETS.fetch(request), url);
+    }
+
+    if (url.hostname === WWW_HOST) return secure(permanentRedirect(url, MARKETING_HOST), url);
+    if (url.hostname === APP_LINK_HOST) return secure(permanentRedirect(url, STUDIO_HOST), url);
+    if (url.hostname === MARKETING_HOST && (url.pathname === '/studio' || url.pathname.startsWith('/studio/'))) {
+      return secure(permanentRedirect(url, STUDIO_HOST), url);
+    }
+
     let response = await env.ASSETS.fetch(request);
     if (response.status === 404 && request.method === 'GET') {
       response = await env.ASSETS.fetch(new Request(new URL('/index.html', url), request));
     }
-    return secure(response);
+    return secure(response, url);
   },
 } satisfies ExportedHandler<Env>;

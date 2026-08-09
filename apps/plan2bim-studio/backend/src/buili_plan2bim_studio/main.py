@@ -14,18 +14,21 @@ from buili_plan2bim import (
     ConversionConfig,
     Plan2BimConverter,
 )
+from buili_plan2bim.core.plan_graph_verification import PlanGraphVerifier
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .aws_gateway import JobVersionConflict
 from .corrections import (
+    GraphCorrection,
     GraphCorrectionSet,
     apply_graph_corrections,
     correction_summary,
     graph_content_hash,
 )
-from .store import JobStore, StudioJob
+from .store import JobStore, StudioJob, StudioJobPage, StudioJobPublic
 
 DATA_ROOT = Path(
     os.environ.get("DAJOONG_STUDIO_DATA") or os.environ.get("BUILI_STUDIO_DATA", "./.data/jobs")
@@ -59,7 +62,7 @@ app.add_middleware(
     allow_origins=allowed_origins,
     allow_credentials=False,
     allow_methods=["DELETE", "GET", "POST"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
 )
 
 
@@ -88,6 +91,16 @@ async def require_authentication(request: Request, call_next: Any) -> Response:
     return await call_next(request)
 
 
+@app.middleware("http")
+async def protect_private_responses(request: Request, call_next: Any) -> Response:
+    response = await call_next(request)
+    if request.url.path.startswith("/api/") and request.url.path != "/api/health":
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
 class PatchResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -96,6 +109,7 @@ class PatchResult(BaseModel):
     summary: dict[str, int]
     review_required: bool
     release_allowed: bool
+    job_version: int
 
 
 class ImportedGraph(BaseModel):
@@ -109,6 +123,24 @@ class AccountDeletionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     confirmation: str
+
+
+class GraphRevisionSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_job_version: int = Field(ge=1)
+    expected_graph_sha256: str = Field(min_length=64, max_length=64)
+    reviewer: str = Field(default="studio-user", min_length=1, max_length=200)
+    operations: list[GraphCorrection] = Field(default_factory=list, max_length=20_000)
+    graph: dict[str, Any]
+
+    @model_validator(mode="after")
+    def validate_snapshot_size(self) -> GraphRevisionSnapshot:
+        if not all(isinstance(self.graph.get(key), list) for key in ("levels", "walls", "rooms")):
+            raise ValueError("snapshot must contain PlanGraph levels, walls, and rooms")
+        if len(json.dumps(self.graph, separators=(",", ":"))) > 10_000_000:
+            raise ValueError("snapshot exceeds the 10 MB project-state limit")
+        return self
 
 
 def _using_aws() -> bool:
@@ -145,6 +177,34 @@ def _safe_source_name(name: str | None) -> str:
     return "".join(character for character in raw if character.isalnum() or character in "._-")
 
 
+def _validate_upload_size(drawing: UploadFile) -> None:
+    max_bytes = int(os.environ.get("DAJOONG_MAX_UPLOAD_BYTES", str(100 * 1024 * 1024)))
+    if not 1_048_576 <= max_bytes <= 1_073_741_824:
+        raise RuntimeError("DAJOONG_MAX_UPLOAD_BYTES must be between 1 MB and 1 GB")
+    position = drawing.file.tell()
+    drawing.file.seek(0, 2)
+    size = drawing.file.tell()
+    drawing.file.seek(position)
+    if size > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"drawing exceeds the {max_bytes // (1024 * 1024)} MB upload limit",
+        )
+
+
+def _idempotency_key(request: Request) -> str:
+    value = request.headers.get("Idempotency-Key", "").strip()
+    if value and (
+        not 8 <= len(value) <= 200
+        or any(
+            character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-"
+            for character in value
+        )
+    ):
+        raise HTTPException(status_code=422, detail="invalid Idempotency-Key")
+    return value
+
+
 def _run_conversion(
     job_id: str,
     source_path: Path,
@@ -162,6 +222,9 @@ def _run_conversion(
         )
         result = converter.convert(source_path, job.output_dir, config)
         job.result = result.model_dump(mode="json")
+        job.graph_sha256 = graph_content_hash(
+            json.loads(Path(result.plan_graph_path).read_text(encoding="utf-8"))
+        )
         job.status = "review_required" if result.review_required else "complete"
     except Exception as exc:  # The persisted message is the job boundary.
         job.status = "failed"
@@ -185,6 +248,9 @@ def _run_building_conversion(
         )
         result = converter.convert(job.output_dir, config)
         job.result = result.model_dump(mode="json")
+        job.graph_sha256 = graph_content_hash(
+            json.loads(Path(result.plan_graph_path).read_text(encoding="utf-8"))
+        )
         job.status = "review_required" if result.review_required else "complete"
     except Exception as exc:
         job.status = "failed"
@@ -215,7 +281,7 @@ def delete_account(request: Request, payload: AccountDeletionRequest) -> dict[st
     return {"status": "deleted", **result}
 
 
-@app.post("/api/jobs", response_model=StudioJob)
+@app.post("/api/jobs", response_model=StudioJobPublic)
 async def create_job(
     request: Request,
     drawing: Annotated[UploadFile, File()],
@@ -230,8 +296,9 @@ async def create_job(
     page_number: Annotated[int, Form(ge=1)] = 1,
     pdf_dpi: Annotated[int, Form(ge=72, le=600)] = 300,
     semantic_model: Annotated[str, Form()] = "",
-) -> StudioJob:
+) -> StudioJobPublic:
     source_name = _safe_source_name(drawing.filename)
+    _validate_upload_size(drawing)
     if Path(source_name).suffix.lower() not in {
         ".pdf",
         ".png",
@@ -255,35 +322,40 @@ async def create_job(
         pdf_dpi=pdf_dpi,
     )
     owner_id, organization_id = _identity(request)
+    idempotency_key = _idempotency_key(request)
     if _using_aws():
-        return _aws_gateway().create_job(
+        job = _aws_gateway().create_job(
             source_name,
             drawing.file,
             config,
             semantic_model=semantic_model,
             owner_id=owner_id,
             organization_id=organization_id,
+            idempotency_key=idempotency_key,
         )
-    job = store.create(
-        source_name,
-        owner_id=owner_id,
-        organization_id=organization_id,
-    )
-    source_path = DATA_ROOT.resolve() / job.id / source_name
-    with source_path.open("wb") as output:
-        shutil.copyfileobj(drawing.file, output)
-    executor.submit(_run_conversion, job.id, source_path, config, semantic_model)
-    return job
+    else:
+        job = store.create(
+            source_name,
+            project_id=config.project_id,
+            owner_id=owner_id,
+            organization_id=organization_id,
+        )
+        source_path = DATA_ROOT.resolve() / job.id / source_name
+        with source_path.open("wb") as output:
+            shutil.copyfileobj(drawing.file, output)
+        executor.submit(_run_conversion, job.id, source_path, config, semantic_model)
+    return StudioJobPublic.from_job(job)
 
 
-@app.post("/api/building-jobs", response_model=StudioJob)
+@app.post("/api/building-jobs", response_model=StudioJobPublic)
 async def create_building_job(
     request: Request,
     drawing: Annotated[UploadFile, File()],
     building_config: Annotated[str, Form()],
     semantic_model: Annotated[str, Form()] = "",
-) -> StudioJob:
+) -> StudioJobPublic:
     source_name = _safe_source_name(drawing.filename)
+    _validate_upload_size(drawing)
     if Path(source_name).suffix.lower() not in {
         ".pdf",
         ".png",
@@ -301,73 +373,109 @@ async def create_building_job(
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=f"invalid building config: {exc}") from exc
     owner_id, organization_id = _identity(request)
+    idempotency_key = _idempotency_key(request)
     if _using_aws():
-        return _aws_gateway().create_building_job(
+        job = _aws_gateway().create_building_job(
             source_name,
             drawing.file,
             config,
             semantic_model=semantic_model,
             owner_id=owner_id,
             organization_id=organization_id,
+            idempotency_key=idempotency_key,
         )
-    job = store.create(
-        source_name,
-        owner_id=owner_id,
-        organization_id=organization_id,
-    )
-    source_path = DATA_ROOT.resolve() / job.id / source_name
-    with source_path.open("wb") as output:
-        shutil.copyfileobj(drawing.file, output)
-    resolved_config = config.model_copy(
-        update={
-            "levels": [
-                level.model_copy(update={"source_path": str(source_path)})
-                for level in config.levels
-            ]
-        }
-    )
-    executor.submit(
-        _run_building_conversion,
-        job.id,
-        resolved_config,
-        semantic_model,
-    )
-    return job
-
-
-@app.post("/api/jobs/import", response_model=StudioJob)
-def import_graph(request: Request, payload: ImportedGraph) -> StudioJob:
-    owner_id, organization_id = _identity(request)
-    if _using_aws():
-        return _aws_gateway().create_imported_graph(
-            _safe_source_name(payload.source_name),
-            payload.graph,
+    else:
+        job = store.create(
+            source_name,
+            project_id=config.project_id,
             owner_id=owner_id,
             organization_id=organization_id,
         )
-    job = store.create(
-        _safe_source_name(payload.source_name),
-        owner_id=owner_id,
-        organization_id=organization_id,
-    )
-    output = Path(job.output_dir)
-    output.mkdir(parents=True, exist_ok=True)
-    graph_path = output / "03-plan-graph.json"
-    graph_path.write_text(json.dumps(payload.graph, indent=2) + "\n", encoding="utf-8")
-    job.status = "review_required"
-    job.result = {"plan_graph_path": str(graph_path)}
-    store.save(job)
-    return job
+        source_path = DATA_ROOT.resolve() / job.id / source_name
+        with source_path.open("wb") as output:
+            shutil.copyfileobj(drawing.file, output)
+        resolved_config = config.model_copy(
+            update={
+                "levels": [
+                    level.model_copy(update={"source_path": str(source_path)})
+                    for level in config.levels
+                ]
+            }
+        )
+        executor.submit(
+            _run_building_conversion,
+            job.id,
+            resolved_config,
+            semantic_model,
+        )
+    return StudioJobPublic.from_job(job)
 
 
-@app.get("/api/jobs/{job_id}", response_model=StudioJob)
-def get_job(request: Request, job_id: str) -> StudioJob:
+@app.post("/api/jobs/import", response_model=StudioJobPublic)
+def import_graph(request: Request, payload: ImportedGraph) -> StudioJobPublic:
+    owner_id, organization_id = _identity(request)
+    project_id = str(payload.graph.get("project_id") or "dajoong-project")[:160]
+    if _using_aws():
+        job = _aws_gateway().create_imported_graph(
+            _safe_source_name(payload.source_name),
+            payload.graph,
+            project_id=project_id,
+            owner_id=owner_id,
+            organization_id=organization_id,
+        )
+    else:
+        job = store.create(
+            _safe_source_name(payload.source_name),
+            project_id=project_id,
+            owner_id=owner_id,
+            organization_id=organization_id,
+        )
+        output = Path(job.output_dir)
+        output.mkdir(parents=True, exist_ok=True)
+        graph_path = output / "03-plan-graph.json"
+        graph_path.write_text(json.dumps(payload.graph, indent=2) + "\n", encoding="utf-8")
+        job.status = "review_required"
+        job.result = {"plan_graph_path": str(graph_path)}
+        job.graph_sha256 = graph_content_hash(payload.graph)
+        store.save(job)
+    return StudioJobPublic.from_job(job)
+
+
+@app.get("/api/jobs", response_model=StudioJobPage)
+def list_jobs(
+    request: Request,
+    scope: str = "personal",
+    limit: int = 25,
+    cursor: str = "",
+) -> StudioJobPage:
+    if scope not in {"personal", "organization"}:
+        raise HTTPException(status_code=422, detail="scope must be personal or organization")
+    if not 1 <= limit <= 100:
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 100")
+    owner_id, organization_id = _identity(request)
+    if scope == "organization" and not organization_id:
+        raise HTTPException(status_code=403, detail="organization membership is required")
+    gateway = _aws_gateway() if _using_aws() else store
+    try:
+        return gateway.list_for_identity(
+            owner_id=owner_id,
+            organization_id=organization_id,
+            scope=scope,
+            limit=limit,
+            cursor=cursor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="invalid pagination cursor") from exc
+
+
+@app.get("/api/jobs/{job_id}", response_model=StudioJobPublic)
+def get_job(request: Request, job_id: str) -> StudioJobPublic:
     try:
         job = _aws_gateway().get(job_id) if _using_aws() else store.get(job_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="job not found") from exc
     _authorize(request, job)
-    return job
+    return StudioJobPublic.from_job(job)
 
 
 def _artifact_path(job: StudioJob, artifact_name: str, level_id: str = "") -> Path:
@@ -466,27 +574,118 @@ def patch_graph(request: Request, job_id: str, payload: GraphCorrectionSet) -> P
         raise HTTPException(status_code=404, detail="job not found") from exc
     _authorize(request, job)
     if _using_aws():
-        graph = _aws_gateway().read_json(job, "graph")
+        graph = _aws_gateway().read_editable_graph(job)
     else:
-        graph_path = _artifact_path(job, "graph")
+        try:
+            graph_path = _artifact_path(job, "corrected-graph")
+        except HTTPException:
+            graph_path = _artifact_path(job, "graph")
         graph = json.loads(graph_path.read_text(encoding="utf-8"))
     try:
         corrected = apply_graph_corrections(graph, payload)
     except (KeyError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    graph_sha256 = graph_content_hash(corrected)
+    verification = corrected.get("verification", {})
+    release_allowed = bool(verification.get("release_allowed", False))
     if _using_aws():
-        _aws_gateway().write_json(job, "corrected-graph", corrected)
-        _aws_gateway().write_json(job, "corrections", payload.model_dump(mode="json"))
+        try:
+            _aws_gateway().commit_correction_revision(
+                job,
+                corrected_graph=corrected,
+                corrections=payload.model_dump(mode="json"),
+                graph_sha256=graph_sha256,
+                release_allowed=release_allowed,
+            )
+        except JobVersionConflict as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="project changed in another session; reload before saving",
+            ) from exc
         corrected_name = "corrected-plan-graph.json"
     else:
         corrected_path = store.write_json(job_id, "corrected-plan-graph.json", corrected)
         store.write_json(job_id, "corrections.json", payload.model_dump(mode="json"))
+        job.active_revision = graph_sha256
+        job.graph_sha256 = graph_sha256
+        job.status = "complete" if release_allowed else "review_required"
+        store.save(job)
         corrected_name = corrected_path.name
-    verification = corrected.get("verification", {})
     return PatchResult(
-        graph_sha256=graph_content_hash(corrected),
+        graph_sha256=graph_sha256,
         artifact_name=corrected_name,
         summary=correction_summary(payload.operations),
         review_required=bool(verification.get("review_required", True)),
-        release_allowed=bool(verification.get("release_allowed", False)),
+        release_allowed=release_allowed,
+        job_version=job.version,
+    )
+
+
+@app.post("/api/jobs/{job_id}/revisions", response_model=PatchResult)
+def save_graph_revision(
+    request: Request,
+    job_id: str,
+    payload: GraphRevisionSnapshot,
+) -> PatchResult:
+    try:
+        job = _aws_gateway().get(job_id) if _using_aws() else store.get(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="job not found") from exc
+    _authorize(request, job)
+    if job.version != payload.expected_job_version:
+        raise HTTPException(
+            status_code=409,
+            detail="project changed in another session; reload before saving",
+        )
+    if _using_aws():
+        current_graph = _aws_gateway().read_editable_graph(job)
+    else:
+        try:
+            current_path = _artifact_path(job, "corrected-graph")
+        except HTTPException:
+            current_path = _artifact_path(job, "graph")
+        current_graph = json.loads(current_path.read_text(encoding="utf-8"))
+    if graph_content_hash(current_graph) != payload.expected_graph_sha256:
+        raise HTTPException(
+            status_code=409,
+            detail="project changed in another session; reload before saving",
+        )
+    certificate = PlanGraphVerifier().verify(payload.graph)
+    graph_sha256 = graph_content_hash(payload.graph)
+    corrections = {
+        "schema_version": "dajoong.studio-revision.v1",
+        "reviewer": payload.reviewer,
+        "base_graph_sha256": payload.expected_graph_sha256,
+        "graph_sha256": graph_sha256,
+        "operations": [item.model_dump(mode="json") for item in payload.operations],
+        "verification": certificate.model_dump(mode="json"),
+    }
+    if _using_aws():
+        try:
+            _aws_gateway().commit_correction_revision(
+                job,
+                corrected_graph=payload.graph,
+                corrections=corrections,
+                graph_sha256=graph_sha256,
+                release_allowed=certificate.release_allowed,
+            )
+        except JobVersionConflict as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="project changed in another session; reload before saving",
+            ) from exc
+    else:
+        store.write_json(job_id, "corrected-plan-graph.json", payload.graph)
+        store.write_json(job_id, "corrections.json", corrections)
+        job.active_revision = graph_sha256
+        job.graph_sha256 = graph_sha256
+        job.status = "complete" if certificate.release_allowed else "review_required"
+        store.save(job)
+    return PatchResult(
+        graph_sha256=graph_sha256,
+        artifact_name="corrected-plan-graph.json",
+        summary=correction_summary(payload.operations),
+        review_required=certificate.review_required,
+        release_allowed=certificate.release_allowed,
+        job_version=job.version,
     )

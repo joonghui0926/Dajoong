@@ -1,6 +1,6 @@
 # Dajoong AWS deployment
 
-This stack provisions the production boundary around the converter. The web app is served from private S3 through CloudFront. Cognito issues user tokens. App Runner receives uploads and writes durable job state to DynamoDB. SQS feeds CPU conversion work to an autoscaled Fargate Spot service. Artifacts remain private in S3 and are returned through short lived signed URLs.
+This stack provisions the private production boundary around the converter. Cognito issues user tokens. App Runner receives uploads and writes durable job state to DynamoDB. SQS feeds CPU conversion work to an autoscaled Fargate Spot service. Artifacts remain private in S3 and are returned through short-lived signed URLs. The browser client is a separate static-assets Cloudflare Worker, and the public API is a separate Cloudflare Worker that verifies an origin secret before forwarding to App Runner.
 
 ## Required operator inputs
 
@@ -8,7 +8,9 @@ This stack provisions the production boundary around the converter. The web app 
 2. Build the API image and push the same immutable tag to both ECR repositories created by this stack.
 3. Copy `terraform.tfvars.example` to `terraform.tfvars`, then set the image tags, allowed web origin, and Cognito callback URLs.
 4. Run `terraform apply`.
-5. Build the web client with the CloudFront API URL and Cognito values from Terraform outputs, then upload `frontend/dist` to the web bucket.
+5. Build the web client with `https://studio-api.builiconstruction.com` and the Cognito outputs, then deploy `infra/cloudflare/wrangler.web.jsonc` with Wrangler.
+
+The web Worker owns `builiconstruction.com`, `www.builiconstruction.com`, `studio.builiconstruction.com`, and `app.builiconstruction.com`. The apex serves the marketing and legal pages. `www` redirects to the apex, `/studio` redirects to the canonical Studio host, and `app` redirects to Studio while still serving native association files directly. The API Worker owns `studio-api.builiconstruction.com`.
 
 No database server or Redis cluster is required for the first release. DynamoDB stores job state and S3 stores drawings, graphs, IFC, GLB, and review patches. Redis becomes useful only when live multiuser cursors or high frequency collaborative editing are introduced.
 

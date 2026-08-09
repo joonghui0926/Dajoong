@@ -13,6 +13,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
+          auth: ["oidc-client-ts"],
           react: ["react", "react-dom"],
           three: ["three", "three/examples/jsm/controls/OrbitControls.js"],
           icons: ["lucide-react"],

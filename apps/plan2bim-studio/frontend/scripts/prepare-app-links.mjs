@@ -33,4 +33,4 @@ await writeFile(join(output, 'assetlinks.json'), `${JSON.stringify([{
     sha256_cert_fingerprints: [fingerprint],
   },
 }], null, 2)}\n`);
-console.log('Prepared verified iOS and Android association files for studio.builiconstruction.com');
+console.log('Prepared verified iOS and Android association files for app.builiconstruction.com and studio.builiconstruction.com');

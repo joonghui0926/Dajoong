@@ -214,10 +214,15 @@ jobs:
         run: |
           set -euo pipefail
           curl --fail --retry 30 --retry-delay 10 --retry-all-errors https://studio-api.builiconstruction.com/api/health
+          curl --fail --retry 20 --retry-delay 5 --retry-all-errors https://builiconstruction.com/
           curl --fail --retry 20 --retry-delay 5 --retry-all-errors https://studio.builiconstruction.com/studio
           for path in privacy cookies terms support account-deletion; do
             curl --fail --retry 10 --retry-delay 3 --retry-all-errors "https://studio.builiconstruction.com/$path"
           done
+          test "$(curl -sS -o /dev/null -w '%{http_code}' https://www.builiconstruction.com/)" = "308"
+          test "$(curl -sS -o /dev/null -w '%{http_code}' https://app.builiconstruction.com/studio)" = "308"
+          curl --fail --retry 10 --retry-delay 3 --retry-all-errors https://app.builiconstruction.com/.well-known/apple-app-site-association
+          curl --fail --retry 10 --retry-delay 3 --retry-all-errors https://app.builiconstruction.com/.well-known/assetlinks.json
           status=$(curl -sS -o /dev/null -w '%{http_code}' https://studio-api.builiconstruction.com/api/jobs)
           test "$status" = "401" || { echo "Expected authenticated public jobs route to return 401, got $status" >&2; exit 1; }
           service_url=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw api_service_url)
@@ -231,7 +236,8 @@ jobs:
           {
             echo "### Dajoong Plan2BIM production is ready"
             echo "- API: https://studio-api.builiconstruction.com/api/health"
-            echo "- Web: https://studio.builiconstruction.com/studio"
+            echo "- Website: https://builiconstruction.com/"
+            echo "- Studio: https://studio.builiconstruction.com/studio"
             echo "- OAuth provider callback: ${hosted_ui}/oauth2/idpresponse"
             echo "- Converter image: ${{ github.sha }} (private ECR only)"
             echo "- Identity providers were enabled only when their keys were present."

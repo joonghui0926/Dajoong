@@ -11,7 +11,8 @@ in Git, a browser bundle, or a mobile application.
 2. Deploy `infra/bootstrap/github-oidc.yml` once in the AWS account. Use its
    output as `AWS_DEPLOY_ROLE_ARN`.
 3. Keep `builiconstruction.com` in the Cloudflare account used by the token.
-   Wrangler creates the `studio` and `studio-api` custom-domain records.
+   Wrangler creates the apex, `www`, `studio`, `app`, and `studio-api`
+   custom-domain records and their certificates.
 4. Create Play Console and App Store Connect records for
    `com.dajoong.plan2bim`.
 5. Enable Associated Domains and Sign in with Apple on that Apple identifier.
@@ -65,8 +66,8 @@ and account/zone read access for `builiconstruction.com`.
    validates the private model, Python suite, server image, web suite, bundle
    boundary, and store metadata.
 2. Run `deploy-plan2bim-studio`. It deploys the private converter, zero-idle CPU
-   workers, Cognito, `studio-api.builiconstruction.com`, and the Dajoong landing
-   and Studio at `studio.builiconstruction.com`.
+   workers, Cognito, `studio-api.builiconstruction.com`, the landing page at the
+   apex, and the editor at `studio.builiconstruction.com`.
 3. Complete one authenticated conversion on web and one installed test build.
 4. Run `release-mobile` with both publishing switches off. Inspect the signed
    AAB and IPA artifacts.
@@ -75,7 +76,8 @@ and account/zone read access for `builiconstruction.com`.
 
 ## Public production pages
 
-- Web/Studio: `https://studio.builiconstruction.com/`
+- Website: `https://builiconstruction.com/`
+- Studio: `https://studio.builiconstruction.com/studio`
 - Privacy: `https://studio.builiconstruction.com/privacy`
 - Cookies: `https://studio.builiconstruction.com/cookies`
 - Terms: `https://studio.builiconstruction.com/terms`
@@ -84,3 +86,6 @@ and account/zone read access for `builiconstruction.com`.
 - API health: `https://studio-api.builiconstruction.com/api/health`
 
 Support and privacy contact: `jjoonghui@gmail.com`.
+
+Account data, recent-project pagination, immutable correction revisions, and
+deletion-race handling are specified in `ACCOUNT_DATA_ARCHITECTURE.md`.

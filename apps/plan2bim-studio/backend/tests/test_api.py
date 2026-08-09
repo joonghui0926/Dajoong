@@ -73,6 +73,20 @@ def test_production_origin_secret_fails_closed(monkeypatch) -> None:
         assert verified.status_code != 403
 
 
+def test_private_api_responses_are_not_cached_and_uploads_are_bounded(monkeypatch) -> None:
+    monkeypatch.setenv("DAJOONG_MAX_UPLOAD_BYTES", str(1024 * 1024))
+    with TestClient(main.app) as client:
+        listed = client.get("/api/jobs")
+        assert listed.headers["cache-control"] == "private, no-store"
+        assert listed.headers["x-content-type-options"] == "nosniff"
+        oversized = client.post(
+            "/api/jobs",
+            data={"pixels_per_meter": "100"},
+            files={"drawing": ("oversized.png", b"0" * (1024 * 1024 + 1), "image/png")},
+        )
+        assert oversized.status_code == 413
+
+
 def test_import_patch_and_download(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(main, "DATA_ROOT", tmp_path)
     monkeypatch.setattr(main, "store", JobStore(tmp_path))
@@ -107,6 +121,52 @@ def test_import_patch_and_download(tmp_path, monkeypatch) -> None:
         downloaded = client.get(f"/api/jobs/{job_id}/artifacts/corrected-graph")
         assert downloaded.status_code == 200
         assert downloaded.json()["walls"][0]["review_state"] == "accepted"
+        revised_graph = downloaded.json()
+        second_patch = client.post(
+            f"/api/jobs/{job_id}/corrections",
+            json={
+                "schema_version": "buili.plan2bim-corrections.v1",
+                "expected_graph_sha256": graph_content_hash(revised_graph),
+                "reviewer": "QA",
+                "operations": [
+                    {
+                        "id": "wall-thickness-2",
+                        "action": "update",
+                        "collection": "walls",
+                        "entity_id": "L1:wall:1",
+                        "changes": {"thickness_m": 0.15},
+                        "reason": "field_measurement",
+                    }
+                ],
+            },
+        )
+        assert second_patch.status_code == 200
+        chained = client.get(f"/api/jobs/{job_id}/artifacts/corrected-graph").json()
+        assert chained["walls"][0]["thickness_m"] == 0.15
+        assert len(chained["correction_log"]) == 2
+        state = client.get(f"/api/jobs/{job_id}").json()
+        snapshot = json.loads(json.dumps(chained))
+        snapshot["walls"][0]["thickness_m"] = 0.18
+        revision_payload = {
+            "expected_job_version": state["version"],
+            "expected_graph_sha256": graph_content_hash(chained),
+            "reviewer": "QA",
+            "operations": [],
+            "graph": snapshot,
+        }
+        revision = client.post(f"/api/jobs/{job_id}/revisions", json=revision_payload)
+        assert revision.status_code == 200
+        assert revision.json()["job_version"] == state["version"] + 1
+        stale_revision = client.post(
+            f"/api/jobs/{job_id}/revisions",
+            json=revision_payload,
+        )
+        assert stale_revision.status_code == 409
+        assert (
+            client.get(f"/api/jobs/{job_id}/artifacts/corrected-graph")
+            .json()["walls"][0]["thickness_m"]
+            == 0.18
+        )
 
 
 def test_pdf_job_preserves_page_and_exposes_render(tmp_path, monkeypatch) -> None:
@@ -245,6 +305,9 @@ def test_authenticated_jobs_are_owner_scoped(tmp_path, monkeypatch) -> None:
             headers=owner_headers,
         )
         assert imported.status_code == 200
+        assert "owner_id" not in imported.json()
+        assert "organization_id" not in imported.json()
+        assert "output_dir" not in imported.json()
         job_id = imported.json()["id"]
         assert (
             client.get(
@@ -253,3 +316,12 @@ def test_authenticated_jobs_are_owner_scoped(tmp_path, monkeypatch) -> None:
             == 404
         )
         assert client.get(f"/api/jobs/{job_id}", headers=owner_headers).status_code == 200
+        own_page = client.get("/api/jobs?limit=10", headers=owner_headers)
+        assert own_page.status_code == 200
+        assert [item["id"] for item in own_page.json()["items"]] == [job_id]
+        other_page = client.get(
+            "/api/jobs?limit=10",
+            headers={"Authorization": "Bearer owner-b"},
+        )
+        assert other_page.status_code == 200
+        assert other_page.json()["items"] == []

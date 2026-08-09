@@ -17,6 +17,37 @@ resource "aws_s3_bucket_public_access_block" "artifacts" {
   restrict_public_buckets = true
 }
 
+resource "aws_s3_bucket_ownership_controls" "artifacts" {
+  bucket = aws_s3_bucket.artifacts.id
+  rule { object_ownership = "BucketOwnerEnforced" }
+}
+
+data "aws_iam_policy_document" "artifacts_transport" {
+  statement {
+    sid     = "DenyInsecureTransport"
+    effect  = "Deny"
+    actions = ["s3:*"]
+    resources = [
+      aws_s3_bucket.artifacts.arn,
+      "${aws_s3_bucket.artifacts.arn}/*",
+    ]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "artifacts" {
+  bucket = aws_s3_bucket.artifacts.id
+  policy = data.aws_iam_policy_document.artifacts_transport.json
+}
+
 resource "aws_s3_bucket_versioning" "artifacts" {
   bucket = aws_s3_bucket.artifacts.id
   versioning_configuration { status = "Enabled" }
@@ -32,20 +63,23 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
-  bucket = aws_s3_bucket.artifacts.id
+  bucket     = aws_s3_bucket.artifacts.id
+  depends_on = [aws_s3_bucket_versioning.artifacts]
   rule {
     id     = "expire-unversioned-job-artifacts"
     status = "Enabled"
     filter { prefix = "jobs/" }
     expiration { days = var.artifact_retention_days }
     noncurrent_version_expiration { noncurrent_days = 30 }
+    abort_incomplete_multipart_upload { days_after_initiation = 1 }
   }
 }
 
 resource "aws_dynamodb_table" "jobs" {
-  name         = "${local.name}-jobs"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "job_id"
+  name                        = "${local.name}-jobs"
+  billing_mode                = "PAY_PER_REQUEST"
+  hash_key                    = "job_id"
+  deletion_protection_enabled = var.environment == "production"
   attribute {
     name = "job_id"
     type = "S"
@@ -54,11 +88,59 @@ resource "aws_dynamodb_table" "jobs" {
     name = "owner_id"
     type = "S"
   }
+  attribute {
+    name = "organization_id"
+    type = "S"
+  }
+  attribute {
+    name = "created_at_job"
+    type = "S"
+  }
   global_secondary_index {
-    name               = "owner-id-index"
-    hash_key           = "owner_id"
-    projection_type    = "INCLUDE"
-    non_key_attributes = ["organization_id"]
+    name = "owner-id-index"
+    key_schema {
+      attribute_name = "owner_id"
+      key_type       = "HASH"
+    }
+    key_schema {
+      attribute_name = "created_at_job"
+      key_type       = "RANGE"
+    }
+    projection_type = "INCLUDE"
+    non_key_attributes = [
+      "organization_id",
+      "source_name",
+      "project_id",
+      "status",
+      "created_at",
+      "updated_at",
+      "expires_at",
+      "version",
+      "error",
+    ]
+  }
+  global_secondary_index {
+    name = "organization-id-index"
+    key_schema {
+      attribute_name = "organization_id"
+      key_type       = "HASH"
+    }
+    key_schema {
+      attribute_name = "created_at_job"
+      key_type       = "RANGE"
+    }
+    projection_type = "INCLUDE"
+    non_key_attributes = [
+      "owner_id",
+      "source_name",
+      "project_id",
+      "status",
+      "created_at",
+      "updated_at",
+      "expires_at",
+      "version",
+      "error",
+    ]
   }
   point_in_time_recovery { enabled = true }
   ttl {
@@ -171,8 +253,11 @@ data "aws_iam_policy_document" "runtime" {
     resources = [aws_dynamodb_table.jobs.arn]
   }
   statement {
-    actions   = ["dynamodb:Query"]
-    resources = ["${aws_dynamodb_table.jobs.arn}/index/owner-id-index"]
+    actions = ["dynamodb:Query"]
+    resources = [
+      "${aws_dynamodb_table.jobs.arn}/index/owner-id-index",
+      "${aws_dynamodb_table.jobs.arn}/index/organization-id-index",
+    ]
   }
   statement {
     actions   = ["sqs:SendMessage", "sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"]
@@ -254,7 +339,9 @@ resource "aws_apprunner_service" "api" {
           DAJOONG_AUTH_AUDIENCE           = aws_cognito_user_pool_client.web.id
           DAJOONG_USER_POOL_ID            = aws_cognito_user_pool.users.id
           DAJOONG_OWNER_INDEX_NAME        = "owner-id-index"
+          DAJOONG_ORGANIZATION_INDEX_NAME = "organization-id-index"
           DAJOONG_ARTIFACT_RETENTION_DAYS = tostring(var.artifact_retention_days)
+          DAJOONG_MAX_UPLOAD_BYTES        = "104857600"
           AWS_REGION                      = var.aws_region
         }
         runtime_environment_secrets = var.origin_secret_arn == "" ? {} : {

@@ -1,5 +1,5 @@
-import { Building2, FileImage, LoaderCircle, Plus, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import { Building2, ChevronRight, FileImage, FolderClock, LoaderCircle, Plus, Trash2, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
 import type { PlanGraph } from "../types";
@@ -18,7 +18,22 @@ interface ConversionDialogProps {
   open: boolean;
   onClose: () => void;
   onStatus: (message: string) => void;
-  onComplete: (graph: PlanGraph, sourceUrl: string, jobId: string) => void;
+  onComplete: (
+    graph: PlanGraph,
+    sourceUrl: string,
+    jobId: string,
+    cloudRevision: { version: number; graphSha256: string },
+  ) => void;
+}
+
+interface RecentJob {
+  id: string;
+  status: string;
+  source_name: string;
+  project_id: string;
+  updated_at: number;
+  version: number;
+  graph_sha256?: string;
 }
 
 export function ConversionDialog({ open, onClose, onStatus, onComplete }: ConversionDialogProps) {
@@ -38,10 +53,55 @@ export function ConversionDialog({ open, onClose, onStatus, onComplete }: Conver
   ]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [recentJobs, setRecentJobs] = useState<RecentJob[]>([]);
+  const [recentLoading, setRecentLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    setRecentLoading(true);
+    void authFetch(studioApiUrl("/api/jobs?scope=personal&limit=5"), { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const page = (await response.json()) as { items?: RecentJob[] };
+        setRecentJobs(page.items ?? []);
+      })
+      .catch(() => undefined)
+      .finally(() => setRecentLoading(false));
+    return () => controller.abort();
+  }, [open]);
 
   if (!open) return null;
 
   const isPdf = file?.type === "application/pdf" || file?.name.toLowerCase().endsWith(".pdf");
+
+  const openRecent = async (job: RecentJob) => {
+    setSubmitting(true);
+    setError("");
+    try {
+      const [jobResponse, graphResponse, renderResponse] = await Promise.all([
+        authFetch(studioApiUrl(`/api/jobs/${job.id}`)),
+        authFetch(studioApiUrl(`/api/jobs/${job.id}/artifacts/corrected-graph`)).then(
+          async (response) => response.ok ? response : authFetch(studioApiUrl(`/api/jobs/${job.id}/artifacts/graph`)),
+        ),
+        authFetch(studioApiUrl(`/api/jobs/${job.id}/artifacts/render`)),
+      ]);
+      if (!jobResponse.ok || !graphResponse.ok) throw new Error("This project is not ready to open yet.");
+      const current = (await jobResponse.json()) as { version: number; graph_sha256: string };
+      const graph = (await graphResponse.json()) as PlanGraph;
+      const sourceUrl = renderResponse.ok ? URL.createObjectURL(await renderResponse.blob()) : "";
+      onComplete(graph, sourceUrl, job.id, {
+        version: current.version,
+        graphSha256: current.graph_sha256,
+      });
+      onStatus(`Opened ${job.project_id}`);
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not open project");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -83,7 +143,11 @@ export function ConversionDialog({ open, onClose, onStatus, onComplete }: Conver
         body.set("page_number", pageNumber);
         body.set("pdf_dpi", pdfDpi);
       }
-      const response = await authFetch(studioApiUrl(endpoint), { method: "POST", body });
+      const response = await authFetch(studioApiUrl(endpoint), {
+        method: "POST",
+        headers: { "Idempotency-Key": crypto.randomUUID() },
+        body,
+      });
       if (!response.ok) throw new Error(await response.text());
       const job = (await response.json()) as { id: string; status: string; error?: string };
       onStatus(`Conversion ${job.id.slice(0, 8)} queued`);
@@ -98,7 +162,10 @@ export function ConversionDialog({ open, onClose, onStatus, onComplete }: Conver
       if (!graphResponse.ok) throw new Error("conversion completed without a PlanGraph");
       const graph = (await graphResponse.json()) as PlanGraph;
       const sourceUrl = renderResponse.ok ? URL.createObjectURL(await renderResponse.blob()) : "";
-      onComplete(graph, sourceUrl, job.id);
+      onComplete(graph, sourceUrl, job.id, {
+        version: finished.version,
+        graphSha256: finished.graph_sha256,
+      });
       onStatus(`Conversion ready · ${graph.walls.length} walls · ${graph.rooms.length} rooms`);
       onClose();
     } catch (caught) {
@@ -119,6 +186,25 @@ export function ConversionDialog({ open, onClose, onStatus, onComplete }: Conver
           <div><span className="eyebrow">NEW CONVERSION</span><h2>{buildingMode ? "Convert a building set" : "Convert a floor plan"}</h2></div>
           <button type="button" onClick={onClose} disabled={submitting} aria-label="Close conversion dialog"><X size={18} /></button>
         </div>
+        {recentLoading || recentJobs.length ? (
+          <section className="recent-projects" aria-label="Recent projects">
+            <div className="recent-projects-heading"><FolderClock size={15} /><span>Recent projects</span>{recentLoading ? <LoaderCircle className="spin" size={13} /> : null}</div>
+            <div className="recent-project-list">
+              {recentJobs.map((job) => (
+                <button
+                  type="button"
+                  key={job.id}
+                  disabled={submitting || !["complete", "review_required"].includes(job.status)}
+                  onClick={() => void openRecent(job)}
+                >
+                  <span><strong>{job.project_id}</strong><small>{job.source_name} · {formatRelativeTime(job.updated_at)}</small></span>
+                  <em>{job.status.replaceAll("_", " ")}</em>
+                  <ChevronRight size={15} />
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : null}
         <label className={file ? "drawing-drop selected" : "drawing-drop"}>
           <FileImage size={24} />
           <strong>{file ? file.name : "Choose a drawing or PDF"}</strong>
@@ -158,6 +244,15 @@ export function ConversionDialog({ open, onClose, onStatus, onComplete }: Conver
       </form>
     </div>
   );
+}
+
+function formatRelativeTime(timestamp: number): string {
+  if (!timestamp) return "Recently saved";
+  const seconds = Math.max(0, Math.floor(Date.now() / 1000) - timestamp);
+  if (seconds < 60) return "Just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ago`;
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(timestamp * 1000);
 }
 
 function BuildingLevelEditor({
@@ -223,7 +318,12 @@ async function pollJob(jobId: string, onStatus: (status: string) => void) {
     await new Promise((resolve) => window.setTimeout(resolve, 700));
     const response = await authFetch(studioApiUrl(`/api/jobs/${jobId}`));
     if (!response.ok) throw new Error("could not read conversion status");
-    const job = (await response.json()) as { status: string; error?: string };
+    const job = (await response.json()) as {
+      status: string;
+      error?: string;
+      version: number;
+      graph_sha256: string;
+    };
     onStatus(job.status);
     if (["complete", "review_required", "failed"].includes(job.status)) return job;
   }

@@ -10,12 +10,36 @@ class FakeDynamoDb:
     def __init__(self) -> None:
         self.saved: dict[str, Any] | None = None
         self.deleted: list[str] = []
+        self.updated: list[dict[str, Any]] = []
+        self.queries: list[dict[str, Any]] = []
 
     def put_item(self, **parameters: Any) -> None:
         self.saved = parameters
 
     def query(self, **parameters: Any) -> dict[str, Any]:
+        self.queries.append(parameters)
         assert parameters["IndexName"] == "owner-id-index"
+        if "ScanIndexForward" in parameters:
+            return {
+                "Items": [
+                    {
+                        "job_id": {"S": "recent1"},
+                        "owner_id": {"S": "user-1"},
+                        "status": {"S": "complete"},
+                        "source_name": {"S": "A1.1.pdf"},
+                        "project_id": {"S": "Tower A"},
+                        "created_at": {"N": "2000000000"},
+                        "updated_at": {"N": "2000000010"},
+                        "expires_at": {"N": "2100000000"},
+                        "version": {"N": "3"},
+                    }
+                ],
+                "LastEvaluatedKey": {
+                    "job_id": {"S": "recent1"},
+                    "owner_id": {"S": "user-1"},
+                    "created_at_job": {"S": "2000000000#recent1"},
+                },
+            }
         return {
             "Items": [
                 {"job_id": {"S": "personal"}, "organization_id": {"S": ""}},
@@ -25,6 +49,9 @@ class FakeDynamoDb:
 
     def delete_item(self, **parameters: Any) -> None:
         self.deleted.append(parameters["Key"]["job_id"]["S"])
+
+    def update_item(self, **parameters: Any) -> None:
+        self.updated.append(parameters)
 
 
 class FakeS3:
@@ -58,6 +85,7 @@ def gateway() -> AwsJobGateway:
     value.table_name = "jobs"
     value.user_pool_id = "pool-1"
     value.owner_index_name = "owner-id-index"
+    value.organization_index_name = "organization-id-index"
     value.retention_seconds = 90 * 86_400
     value.ddb = FakeDynamoDb()
     value.s3 = FakeS3()
@@ -85,11 +113,36 @@ def test_account_deletion_removes_all_object_versions_and_personal_job() -> None
 
     result = value.delete_account(owner_id="user-1", username="username-1")
 
-    assert result == {"deleted_personal_jobs": 1}
+    assert result == {"deleted_personal_jobs": 1, "detached_organization_jobs": 1}
     assert value.s3.listed == ["jobs/personal/"]
     assert value.s3.deleted == [[
         {"Key": "jobs/personal/input/plan.pdf", "VersionId": "v1"},
         {"Key": "jobs/personal/output/model.glb", "VersionId": "d1"},
     ]]
     assert value.ddb.deleted == ["personal"]
+    assert value.ddb.updated[0]["Key"] == {"job_id": {"S": "retained"}}
+    assert "REMOVE owner_id" in value.ddb.updated[0]["UpdateExpression"]
     assert value.cognito.deleted == [("pool-1", "username-1")]
+
+
+def test_recent_jobs_use_account_partition_and_opaque_cursor() -> None:
+    value = gateway()
+
+    page = value.list_for_identity(owner_id="user-1", limit=1)
+
+    assert [item.project_id for item in page.items] == ["Tower A"]
+    assert page.items[0].version == 3
+    assert page.next_cursor
+    query = value.ddb.queries[0]
+    assert query["KeyConditionExpression"] == "owner_id = :partition"
+    assert query["ScanIndexForward"] is False
+    decoded = value._decode_cursor(page.next_cursor, "owner_id", "user-1")
+    assert decoded["owner_id"] == {"S": "user-1"}
+    assert decoded["job_id"] == {"S": "recent1"}
+
+
+def test_idempotency_key_is_stable_per_account() -> None:
+    first = AwsJobGateway._new_job_id("user-1", "request-12345678")
+    assert first == AwsJobGateway._new_job_id("user-1", "request-12345678")
+    assert first != AwsJobGateway._new_job_id("user-2", "request-12345678")
+    assert len(first) == 32

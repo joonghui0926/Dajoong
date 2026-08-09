@@ -4,6 +4,8 @@ import {
   BrickWall,
   Check,
   ChevronDown,
+  Cloud,
+  CloudAlert,
   ClipboardCopy,
   ClipboardPaste,
   Columns2,
@@ -11,6 +13,7 @@ import {
   Download,
   FileInput,
   LogOut,
+  LoaderCircle,
   Magnet,
   PanelTop,
   Plus,
@@ -516,6 +519,7 @@ export function Studio() {
   const [commandOpen, setCommandOpen] = useState(false);
   const [recentCommandIds, setRecentCommandIds] = useState(loadRecentCommandIds);
   const [jobId, setJobId] = useState("");
+  const [cloudSaveState, setCloudSaveState] = useState<"idle" | "saving" | "saved" | "conflict">("idle");
   const [snapIncrementM, setSnapIncrementM] = useState(0.05);
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
   const [familyBrowserOpen, setFamilyBrowserOpen] = useState(false);
@@ -541,6 +545,8 @@ export function Studio() {
   const [bimClipboard, setBimClipboard] = useState<BimClipboardBundle | null>(null);
   const [selectionSets, setSelectionSets] = useState<BimSelectionSet[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
+  const cloudRevisionRef = useRef({ jobId: "", version: 0, graphSha256: "", conflicted: false });
+  const cloudSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const rehostViewStateRef = useRef<{
     hiddenCollections: CollectionName[];
     hiddenEntities: Selection[];
@@ -702,6 +708,45 @@ export function Studio() {
       }),
     );
   }, [hiddenCollections, hiddenEntities, isolatedEntities, lockedCollections, lockedEntities, selectionExclusions, selectionSets, session.present, session.source]);
+
+  useEffect(() => {
+    if (!jobId || !graph) return;
+    const snapshotGraph = structuredClone(graph);
+    const snapshotOperations = structuredClone(operations);
+    const timer = window.setTimeout(() => {
+      cloudSaveQueueRef.current = cloudSaveQueueRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          const revision = cloudRevisionRef.current;
+          if (revision.jobId !== jobId || revision.conflicted || revision.version < 1) return;
+          const snapshotSha256 = await contentHash(snapshotGraph);
+          if (snapshotSha256 === revision.graphSha256) return;
+          setCloudSaveState("saving");
+          const { saveCloudRevision } = await import("./cloudRevision");
+          const saved = await saveCloudRevision(jobId, {
+            expectedJobVersion: revision.version,
+            expectedGraphSha256: revision.graphSha256,
+            operations: snapshotOperations,
+            graph: snapshotGraph,
+          });
+          if (saved.conflict) {
+            cloudRevisionRef.current = { ...revision, conflicted: true };
+            setCloudSaveState("conflict");
+            setNotice("Cloud save paused · this project changed in another session");
+            return;
+          }
+          cloudRevisionRef.current = {
+            jobId,
+            version: saved.jobVersion,
+            graphSha256: saved.graphSha256,
+            conflicted: false,
+          };
+          setCloudSaveState("saved");
+        })
+        .catch(() => setCloudSaveState("idle"));
+    }, 1_200);
+    return () => window.clearTimeout(timer);
+  }, [graph, jobId, operations]);
 
   useEffect(() => {
     if (!jobId || !levelId) return;
@@ -2713,6 +2758,15 @@ export function Studio() {
         <a className="brand-lockup" href="/"><DajoongLogo compact /><div><strong>DAJOONG</strong><small>Plan2BIM Studio</small></div></a>
         <div className="project-crumb"><span>{graph.project_id ?? "Untitled project"}</span><b>/</b><strong>{graph.sheet_id ?? "PlanGraph"}</strong></div>
         <div className="header-actions">
+          {jobId ? (
+            <span className={`cloud-save-state ${cloudSaveState}`} title="Account project storage">
+              {cloudSaveState === "saving" ? <LoaderCircle className="spin" size={14} /> : null}
+              {cloudSaveState === "saved" ? <Cloud size={14} /> : null}
+              {cloudSaveState === "conflict" ? <CloudAlert size={14} /> : null}
+              {cloudSaveState === "idle" ? <Cloud size={14} /> : null}
+              {cloudSaveState === "saving" ? "Saving" : cloudSaveState === "conflict" ? "Conflict" : "Account saved"}
+            </span>
+          ) : null}
           <button className="header-button" onClick={() => setConversionOpen(true)}><UploadCloud size={15} /> Convert</button>
           <button className="header-button" onClick={() => fileInput.current?.click()}><FileInput size={15} /> Open files</button>
           {jobId ? <button className="header-button" onClick={() => void downloadJobArtifact(jobId, "ifc")}><Download size={15} /> IFC</button> : null}
@@ -3056,8 +3110,15 @@ export function Studio() {
             open
             onClose={() => setConversionOpen(false)}
             onStatus={setNotice}
-            onComplete={(convertedGraph, convertedSourceUrl, convertedJobId) => {
+            onComplete={(convertedGraph, convertedSourceUrl, convertedJobId, cloudRevision) => {
               rehostViewStateRef.current = null;
+              cloudRevisionRef.current = {
+                jobId: convertedJobId,
+                version: cloudRevision.version,
+                graphSha256: cloudRevision.graphSha256,
+                conflicted: false,
+              };
+              setCloudSaveState("saved");
               setRehostOpeningId(null);
               dispatch({ type: "load", graph: convertedGraph });
               setHiddenCollections([]);

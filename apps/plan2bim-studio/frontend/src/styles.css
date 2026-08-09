@@ -584,6 +584,22 @@ button { color: inherit; }
 .dialog-header h2 { margin: 5px 0 0; font-size: 16px; }
 .dialog-header button { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 4px; color: #68756e; background: transparent; cursor: pointer; }
 .dialog-header button:hover { background: #e8ede9; }
+.cloud-save-state { height: 30px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; border: 1px solid #cbd5d0; border-radius: 999px; color: #587067; background: #f8faf8; font: 650 8px var(--font-mono); white-space: nowrap; }
+.cloud-save-state.saved { color: #315f4b; border-color: #b8ccbf; background: #eef5f0; }
+.cloud-save-state.saving { color: #526b72; }
+.cloud-save-state.conflict { color: #8b4e43; border-color: #ddbbb3; background: #f9edeb; }
+.recent-projects { display: grid; gap: 8px; padding: 12px 18px; border-bottom: 1px solid #dce2de; background: #f4f6f3; }
+.recent-projects-heading { display: flex; align-items: center; gap: 7px; color: #53645b; font-size: 9px; font-weight: 700; }
+.recent-projects-heading .spin { margin-left: auto; }
+.recent-project-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.recent-project-list button { min-width: 0; min-height: 48px; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 7px; padding: 7px 9px; border: 1px solid #d1d9d4; border-radius: 6px; color: #284035; background: #fff; text-align: left; cursor: pointer; }
+.recent-project-list button:hover { border-color: #8da398; background: #fbfdfb; transform: translateY(-1px); }
+.recent-project-list button:disabled { opacity: .56; cursor: default; transform: none; }
+.recent-project-list span { min-width: 0; display: grid; gap: 3px; }
+.recent-project-list strong, .recent-project-list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-project-list strong { font-size: 9px; }
+.recent-project-list small { color: #75837c; font-size: 7px; }
+.recent-project-list em { color: #66766e; font: 650 6px var(--font-mono); text-transform: uppercase; white-space: nowrap; }
 .drawing-drop { height: 104px; margin: 16px 18px 12px; display: grid; grid-template-columns: 34px 1fr; grid-template-rows: 1fr 1fr; align-items: end; column-gap: 10px; padding: 18px; border: 1px dashed #aebdb4; border-radius: 5px; color: #66756d; background: #f1f5f1; cursor: pointer; }
 .drawing-drop:hover, .drawing-drop.selected { border-color: #4a7661; background: #e9f0ec; }
 .drawing-drop svg { grid-row: 1 / 3; align-self: center; color: #47705c; }
@@ -709,7 +725,9 @@ button { color: inherit; }
   .brand-lockup { min-width: auto; }
   .brand-lockup small, .project-crumb, .header-button:not(.primary), .level-select span { display: none; }
   .header-button { padding: 0 8px; }
+  .cloud-save-state { width: 30px; justify-content: center; padding: 0; font-size: 0; }
   .dialog-grid { grid-template-columns: 1fr; }
+  .recent-project-list { grid-template-columns: 1fr; }
   .workspace { grid-template-columns: 1fr; }
   .model-tree { display: none; }
   .property-panel { position: absolute; z-index: 8; right: 0; bottom: 0; width: min(360px, 92vw); height: min(52%, 440px); border-radius: 12px 0 0 0; box-shadow: -8px -8px 25px #1c30252b; }
