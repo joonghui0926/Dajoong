@@ -1,0 +1,67 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.mobileprovision
+*.jks
+*.keystore
+local.properties
+
+# Private model packages are injected from encrypted object storage in CI.
+modules/plan2bim/src/buili_plan2bim/models/*
+!modules/plan2bim/src/buili_plan2bim/models/__init__.py
+private-models/
+*.onnx
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage*
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Node and native build outputs
+node_modules/
+.next/
+out/
+.turbo/
+coverage/
+*.tsbuildinfo
+apps/plan2bim-studio/frontend/android/.gradle/
+apps/plan2bim-studio/frontend/android/app/build/
+apps/plan2bim-studio/frontend/android/app/src/main/assets/public/
+apps/plan2bim-studio/frontend/android/app/src/main/assets/capacitor.config.json
+apps/plan2bim-studio/frontend/android/app/src/main/assets/capacitor.plugins.json
+apps/plan2bim-studio/frontend/android/capacitor-cordova-android-plugins/
+apps/plan2bim-studio/frontend/ios/App/Pods/
+apps/plan2bim-studio/frontend/ios/App/App/public/
+apps/plan2bim-studio/frontend/public/.well-known/
+
+# Terraform and runtime data
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+.data/
+tmp/
+*.log
+*.sqlite3
+*.db
+
+# IDE and operating system
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

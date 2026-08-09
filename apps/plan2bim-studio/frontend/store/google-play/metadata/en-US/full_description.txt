@@ -1,0 +1,5 @@
+Dajoong Plan2BIM converts architectural drawings into editable building models with a review trail back to the source.
+
+Upload a PDF or image and inspect proposed geometry in linked 2D and 3D views. Review walls, openings, rooms, equipment, and building systems individually. Correct dimensions, hosts, placement, and properties with precise CAD-style tools, then export IFC, GLB, PlanGraph, and an immutable correction record.
+
+Guided Review prioritizes uncertain or high-impact elements. Automated output always remains review-required and does not replace qualified architectural, engineering, or construction judgment.

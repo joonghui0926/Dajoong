@@ -1,0 +1,58 @@
+name: release-readiness
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  verify:
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      AWS_REGION: ${{ vars.STUDIO_AWS_REGION || 'us-west-2' }}
+      MODEL_BUNDLE_URI: ${{ vars.DAJOONG_MODEL_BUNDLE_S3_URI }}
+      MODEL_BUNDLE_SHA256: ${{ secrets.DAJOONG_MODEL_BUNDLE_SHA256 }}
+      VITE_STUDIO_API_URL: https://studio-api.builiconstruction.com
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate private model inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${{ vars.AWS_DEPLOY_ROLE_ARN }}" || { echo 'Missing AWS_DEPLOY_ROLE_ARN' >&2; exit 1; }
+          test -n "$MODEL_BUNDLE_URI" || { echo 'Missing DAJOONG_MODEL_BUNDLE_S3_URI' >&2; exit 1; }
+          test -n "$MODEL_BUNDLE_SHA256" || { echo 'Missing DAJOONG_MODEL_BUNDLE_SHA256' >&2; exit 1; }
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install verified private checkpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws s3 cp "$MODEL_BUNDLE_URI" "$RUNNER_TEMP/private-models.tar.gz" --only-show-errors
+          python scripts/install_private_models.py "$RUNNER_TEMP/private-models.tar.gz" \
+            modules/plan2bim/src/buili_plan2bim/models --sha256 "$MODEL_BUNDLE_SHA256"
+      - run: python -m pip install -e "modules/plan2bim[dev]" -e "apps/plan2bim-studio/backend[dev,aws,auth]"
+      - run: python -m pytest modules/plan2bim/tests apps/plan2bim-studio/backend/tests -q
+      - run: docker build -f apps/plan2bim-studio/backend/Dockerfile .
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/plan2bim-studio/frontend/package-lock.json
+      - run: npm ci
+        working-directory: apps/plan2bim-studio/frontend
+      - run: npm test && npm run build && npm run store:validate
+        working-directory: apps/plan2bim-studio/frontend
+      - name: Remove private model material
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/private-models.tar.gz" modules/plan2bim/src/buili_plan2bim/models/*.onnx

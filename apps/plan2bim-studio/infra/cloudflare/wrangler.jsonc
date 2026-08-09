@@ -1,0 +1,11 @@
+{
+  "$schema": "../../../web/node_modules/wrangler/config-schema.json",
+  "name": "dajoong-plan2bim-studio-api",
+  "main": "studio-api-proxy.ts",
+  "workers_dev": false,
+  "routes": [
+    { "pattern": "studio-api.builiconstruction.com", "custom_domain": true }
+  ],
+  "compatibility_date": "2026-08-09",
+  "observability": { "enabled": true }
+}

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Dajoong</string>
+    <string name="title_activity_main">Dajoong</string>
+    <string name="package_name">com.dajoong.plan2bim</string>
+    <string name="custom_url_scheme">com.dajoong.plan2bim</string>
+</resources>

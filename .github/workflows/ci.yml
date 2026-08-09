@@ -1,0 +1,86 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  studio-client:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/plan2bim-studio/frontend
+    env:
+      VITE_STUDIO_API_URL: https://studio-api.builiconstruction.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/plan2bim-studio/frontend/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm run store:validate
+      - run: npx cap sync android
+      - run: ./gradlew assembleDebug --no-daemon
+        working-directory: apps/plan2bim-studio/frontend/android
+
+  server-static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            modules/plan2bim/pyproject.toml
+            apps/plan2bim-studio/backend/pyproject.toml
+      - run: python -m pip install -e modules/plan2bim -e "apps/plan2bim-studio/backend[dev,aws,auth]"
+      - run: python -m ruff check modules/plan2bim/src modules/plan2bim/tests apps/plan2bim-studio/backend/src apps/plan2bim-studio/backend/tests scripts
+      - run: python -m compileall -q modules/plan2bim/src apps/plan2bim-studio/backend/src scripts
+      - run: python -m pytest apps/plan2bim-studio/backend/tests/test_corrections.py -q
+
+  infrastructure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform -chdir=apps/plan2bim-studio/infra/terraform fmt -check -recursive
+      - run: terraform -chdir=apps/plan2bim-studio/infra/terraform init -backend=false
+      - run: terraform -chdir=apps/plan2bim-studio/infra/terraform validate
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npx --yes wrangler@4.110.0 deploy --dry-run --config apps/plan2bim-studio/infra/cloudflare/wrangler.jsonc
+      - run: npx --yes wrangler@4.110.0 deploy --dry-run --config apps/plan2bim-studio/infra/cloudflare/wrangler.web.jsonc
+
+  repository-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove private artifacts did not enter Git
+        shell: bash
+        run: |
+          set -euo pipefail
+          forbidden=$(git ls-files | grep -E '\.(onnx|pt|pth|ckpt|safetensors|pem|p12|jks|keystore)$' || true)
+          test -z "$forbidden" || { echo "Protected artifacts are tracked:"; echo "$forbidden"; exit 1; }
+          ! git grep -I -E 'AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}'

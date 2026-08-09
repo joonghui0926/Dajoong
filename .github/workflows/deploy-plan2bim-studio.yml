@@ -1,0 +1,232 @@
+name: deploy-plan2bim-studio
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: dajoong-plan2bim-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      AWS_REGION: ${{ vars.STUDIO_AWS_REGION || 'us-west-2' }}
+      TF_STATE_REGION: ${{ vars.TF_STATE_REGION || 'us-west-1' }}
+      AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      TF_IN_AUTOMATION: "true"
+      TF_STATE_KEY: dajoong/plan2bim-studio/production.tfstate
+      TF_VAR_api_image_tag: ${{ github.sha }}
+      TF_VAR_worker_image_tag: ${{ github.sha }}
+      MODEL_BUNDLE_URI: ${{ vars.DAJOONG_MODEL_BUNDLE_S3_URI }}
+      MODEL_BUNDLE_SHA256: ${{ secrets.DAJOONG_MODEL_BUNDLE_SHA256 }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      ANDROID_APP_LINK_SHA256: ${{ vars.ANDROID_APP_LINK_SHA256 }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate required deployment keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in AWS_DEPLOY_ROLE_ARN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID MODEL_BUNDLE_URI MODEL_BUNDLE_SHA256 APPLE_TEAM_ID ANDROID_APP_LINK_SHA256; do
+            test -n "${!name:-}" || { echo "Missing production setting: $name" >&2; exit 1; }
+          done
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/plan2bim-studio/frontend/package-lock.json
+
+      - name: Install the content-addressed private model package
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws s3 cp "$MODEL_BUNDLE_URI" "$RUNNER_TEMP/private-models.tar.gz" --only-show-errors
+          python scripts/install_private_models.py "$RUNNER_TEMP/private-models.tar.gz" \
+            modules/plan2bim/src/buili_plan2bim/models --sha256 "$MODEL_BUNDLE_SHA256"
+
+      - name: Resolve state and create the origin-verification secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          account_id=$(aws sts get-caller-identity --query Account --output text)
+          echo "TF_STATE_BUCKET=dajoong-terraform-state-${account_id}-${TF_STATE_REGION}" >> "$GITHUB_ENV"
+          secret_name="dajoong/plan2bim/production/origin-verify"
+          if ! secret_arn=$(aws secretsmanager describe-secret --secret-id "$secret_name" --query ARN --output text 2>/dev/null); then
+            secret_value=$(openssl rand -base64 48)
+            echo "::add-mask::$secret_value"
+            secret_arn=$(aws secretsmanager create-secret \
+              --name "$secret_name" \
+              --description "Cloudflare to Dajoong Studio origin verification" \
+              --secret-string "$secret_value" \
+              --query ARN --output text)
+          fi
+          {
+            echo "ORIGIN_SECRET_ARN=$secret_arn"
+            echo "TF_VAR_origin_secret_arn=$secret_arn"
+          } >> "$GITHUB_ENV"
+
+      - name: Initialize and validate the Studio stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          terraform -chdir=apps/plan2bim-studio/infra/terraform init \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=${TF_STATE_KEY}" \
+            -backend-config="region=${TF_STATE_REGION}" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+          terraform -chdir=apps/plan2bim-studio/infra/terraform fmt -check -recursive
+          terraform -chdir=apps/plan2bim-studio/infra/terraform validate
+
+      - name: Create private image repositories
+        run: >-
+          terraform -chdir=apps/plan2bim-studio/infra/terraform apply -auto-approve
+          -target=aws_ecr_repository.api
+          -target=aws_ecr_repository.worker
+
+      - id: repositories
+        name: Resolve private repositories
+        shell: bash
+        run: |
+          {
+            echo "api=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw api_repository)"
+            echo "worker=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw worker_repository)"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push the server-only converter image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/plan2bim-studio/backend/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.repositories.outputs.api }}:${{ github.sha }}
+            ${{ steps.repositories.outputs.worker }}:${{ github.sha }}
+          cache-from: type=gha,scope=plan2bim-studio
+          cache-to: type=gha,mode=max,scope=plan2bim-studio
+
+      - name: Apply the production API, queue, storage, and CPU workers
+        run: terraform -chdir=apps/plan2bim-studio/infra/terraform apply -auto-approve
+
+      - name: Configure email, Google, Apple, and Kakao sign-in
+        shell: bash
+        env:
+          DAJOONG_USER_POOL_ID: ${{ env.DAJOONG_USER_POOL_ID }}
+          DAJOONG_USER_POOL_CLIENT_ID: ${{ env.DAJOONG_USER_POOL_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          APPLE_SERVICE_ID: ${{ secrets.APPLE_SERVICE_ID }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APPLE_SIGN_IN_KEY_ID: ${{ secrets.APPLE_SIGN_IN_KEY_ID }}
+          APPLE_SIGN_IN_PRIVATE_KEY: ${{ secrets.APPLE_SIGN_IN_PRIVATE_KEY }}
+          KAKAO_OIDC_CLIENT_ID: ${{ secrets.KAKAO_OIDC_CLIENT_ID }}
+          KAKAO_OIDC_CLIENT_SECRET: ${{ secrets.KAKAO_OIDC_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          DAJOONG_USER_POOL_ID=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw user_pool_id)
+          DAJOONG_USER_POOL_CLIENT_ID=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw user_pool_client_id)
+          export DAJOONG_USER_POOL_ID DAJOONG_USER_POOL_CLIENT_ID
+          bash apps/plan2bim-studio/infra/scripts/configure_cognito_idps.sh
+
+      - name: Build the server-only Studio web client
+        shell: bash
+        run: |
+          set -euo pipefail
+          authority=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw cognito_authority)
+          client_id=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw user_pool_client_id)
+          user_pool_id=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw user_pool_id)
+          providers=$(aws cognito-idp describe-user-pool-client \
+            --user-pool-id "$user_pool_id" --client-id "$client_id" \
+            --query 'UserPoolClient.SupportedIdentityProviders' --output text)
+          [[ " $providers " == *" Google "* ]] && google=true || google=false
+          [[ " $providers " == *" SignInWithApple "* ]] && apple=true || apple=false
+          [[ " $providers " == *" Kakao "* ]] && kakao=true || kakao=false
+          npm ci --prefix apps/plan2bim-studio/frontend
+          APPLE_TEAM_ID="${{ vars.APPLE_TEAM_ID }}" \
+          ANDROID_APP_LINK_SHA256="${{ vars.ANDROID_APP_LINK_SHA256 }}" \
+            npm run links:prepare --prefix apps/plan2bim-studio/frontend
+          VITE_STUDIO_API_URL=https://studio-api.builiconstruction.com \
+          VITE_COGNITO_AUTHORITY="$authority" \
+          VITE_COGNITO_CLIENT_ID="$client_id" \
+          VITE_COGNITO_REDIRECT_URI=https://studio.builiconstruction.com/studio \
+          VITE_AUTH_GOOGLE_ENABLED="$google" \
+          VITE_AUTH_APPLE_ENABLED="$apple" \
+          VITE_AUTH_KAKAO_ENABLED="$kakao" \
+            npm run build --prefix apps/plan2bim-studio/frontend
+
+      - name: Publish the protected Studio API on the .com domain
+        shell: bash
+        run: |
+          set -euo pipefail
+          service_url=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw api_service_url)
+          service_url="https://${service_url#https://}"
+          npx --yes wrangler@4.110.0 deploy \
+            --config apps/plan2bim-studio/infra/cloudflare/wrangler.jsonc \
+            --var "STUDIO_API_ORIGIN:${service_url}"
+          origin_secret=$(aws secretsmanager get-secret-value \
+            --secret-id "$ORIGIN_SECRET_ARN" --query SecretString --output text)
+          echo "::add-mask::$origin_secret"
+          printf '%s' "$origin_secret" | npx --yes wrangler@4.110.0 secret put STUDIO_ORIGIN_VERIFY_SECRET \
+            --config apps/plan2bim-studio/infra/cloudflare/wrangler.jsonc
+          npx --yes wrangler@4.110.0 deploy \
+            --config apps/plan2bim-studio/infra/cloudflare/wrangler.jsonc \
+            --var "STUDIO_API_ORIGIN:${service_url}"
+
+      - name: Publish the Studio web client on the .com domain
+        run: >-
+          npx --yes wrangler@4.110.0 deploy
+          --config apps/plan2bim-studio/infra/cloudflare/wrangler.web.jsonc
+
+      - name: Verify the protected public boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --retry 30 --retry-delay 10 --retry-all-errors https://studio-api.builiconstruction.com/api/health
+          curl --fail --retry 20 --retry-delay 5 --retry-all-errors https://studio.builiconstruction.com/studio
+          status=$(curl -sS -o /dev/null -w '%{http_code}' https://studio-api.builiconstruction.com/api/jobs)
+          test "$status" = "401" || { echo "Expected authenticated public jobs route to return 401, got $status" >&2; exit 1; }
+          service_url=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw api_service_url)
+          direct_status=$(curl -sS -o /dev/null -w '%{http_code}' "https://${service_url#https://}/api/jobs")
+          test "$direct_status" = "403" || { echo "Direct App Runner access did not fail closed" >&2; exit 1; }
+
+      - name: Publish deployment summary
+        shell: bash
+        run: |
+          hosted_ui=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw cognito_hosted_ui)
+          {
+            echo "### Dajoong Plan2BIM production is ready"
+            echo "- API: https://studio-api.builiconstruction.com/api/health"
+            echo "- Web: https://studio.builiconstruction.com/studio"
+            echo "- OAuth provider callback: ${hosted_ui}/oauth2/idpresponse"
+            echo "- Converter image: ${{ github.sha }} (private ECR only)"
+            echo "- Identity providers were enabled only when their keys were present."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove private model material
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/private-models.tar.gz" modules/plan2bim/src/buili_plan2bim/models/*.onnx

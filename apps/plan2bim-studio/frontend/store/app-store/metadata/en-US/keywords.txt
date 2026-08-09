@@ -1,0 +1,1 @@
+BIM,CAD,floor plan,construction,IFC,GLB,architecture,drawing,3D,model

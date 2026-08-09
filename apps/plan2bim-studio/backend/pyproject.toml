@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "buili-plan2bim-studio-api"
+version = "0.1.0"
+description = "Project-layer job and correction API for Dajoong Plan2BIM"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "buili-plan2bim==0.1.0",
+  "fastapi>=0.116,<1",
+  "pydantic>=2.8,<3",
+  "python-multipart>=0.0.20,<1",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+dev = ["httpx>=0.28,<1", "pytest>=8.4,<10", "ruff>=0.12,<1"]
+aws = ["boto3>=1.40,<2"]
+auth = ["PyJWT[crypto]>=2.10,<3"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/buili_plan2bim_studio"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

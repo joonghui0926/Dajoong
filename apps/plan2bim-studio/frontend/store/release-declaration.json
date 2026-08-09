@@ -1,0 +1,28 @@
+{
+  "schema": "dajoong.store-release.v1",
+  "app": {
+    "name": "Dajoong",
+    "bundleId": "com.dajoong.plan2bim",
+    "supportEmail": "jjoonghui@gmail.com",
+    "supportUrl": "https://builiconstruction.com/support",
+    "privacyUrl": "https://builiconstruction.com/privacy",
+    "accountDeletionUrl": "https://builiconstruction.com/account-deletion"
+  },
+  "privacy": {
+    "tracking": false,
+    "advertising": false,
+    "sold": false,
+    "encryptedInTransit": true,
+    "accountDeletionInApp": true,
+    "optionalAnalyticsDefault": "off",
+    "collectedForFunctionality": [
+      "email_address",
+      "name_when_provided_by_identity_provider",
+      "user_id",
+      "uploaded_drawings_and_documents",
+      "user_corrections_and_review_history"
+    ]
+  },
+  "authentication": ["email", "google", "apple", "kakao"],
+  "distribution": ["web", "android", "ios"]
+}

@@ -1,0 +1,141 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: One-time Dajoong production bootstrap for GitHub OIDC and encrypted Terraform state.
+
+Parameters:
+  GitHubOwner:
+    Type: String
+    Default: joonghui0926
+  GitHubRepository:
+    Type: String
+    Default: Dajoong
+  GitHubEnvironment:
+    Type: String
+    Default: production
+  CreateGitHubOidcProvider:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+  ExistingGitHubOidcProviderArn:
+    Type: String
+    Default: ""
+    Description: Required only when the AWS account already has token.actions.githubusercontent.com.
+
+Conditions:
+  ShouldCreateGitHubOidcProvider: !Equals [!Ref CreateGitHubOidcProvider, "true"]
+
+Resources:
+  TerraformStateBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub dajoong-terraform-state-${AWS::AccountId}-${AWS::Region}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  TerraformStateBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref TerraformStateBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt TerraformStateBucket.Arn
+              - !Sub ${TerraformStateBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: ShouldCreateGitHubOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      Tags:
+        - Key: Application
+              Value: Dajoong
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  GitHubProductionDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: dajoong-github-production-deploy
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - ShouldCreateGitHubOidcProvider
+                - !Ref GitHubOidcProvider
+                - !Ref ExistingGitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOwner}/${GitHubRepository}:environment:${GitHubEnvironment}
+      Policies:
+        - PolicyName: dajoong-production-deployment
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ManageBuiliProductionInfrastructure
+                Effect: Allow
+                Action:
+                  - acm:*
+                  - application-autoscaling:*
+                  - apprunner:*
+                  - cloudwatch:*
+                  - cloudfront:*
+                  - cognito-idp:*
+                  - dynamodb:*
+                  - ec2:*
+                  - ecr:*
+                  - ecs:*
+                  - elasticloadbalancing:*
+                  - events:*
+                  - iam:*
+                  - logs:*
+                  - rds:*
+                  - s3:*
+                  - secretsmanager:*
+                  - ses:*
+                  - sns:*
+                  - sqs:*
+                  - sts:GetCallerIdentity
+                Resource: "*"
+      Tags:
+        - Key: Application
+          Value: Dajoong
+        - Key: Environment
+          Value: production
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  DeployRoleArn:
+    Description: Set this as the GitHub production environment variable AWS_DEPLOY_ROLE_ARN.
+    Value: !GetAtt GitHubProductionDeployRole.Arn
+  TerraformStateBucketName:
+    Description: Derived automatically by the deployment workflow.
+    Value: !Ref TerraformStateBucket
+  AwsRegion:
+    Value: !Ref AWS::Region

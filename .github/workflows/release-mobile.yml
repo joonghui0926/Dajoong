@@ -1,0 +1,311 @@
+name: release-mobile
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: Public app version, for example 1.0.0
+        required: true
+        default: 1.0.0
+        type: string
+      version_code:
+        description: Monotonically increasing Android/iOS build number
+        required: true
+        default: "1"
+        type: string
+      publish_google:
+        description: Upload the signed AAB and listing to Google Play
+        default: false
+        type: boolean
+      google_track:
+        description: Google Play destination track
+        default: internal
+        type: choice
+        options: [internal, alpha, beta, production]
+      google_release_status:
+        description: Google Play release state
+        default: draft
+        type: choice
+        options: [draft, completed]
+      publish_apple:
+        description: Upload the signed IPA and listing to App Store Connect
+        default: false
+        type: boolean
+      submit_apple_for_review:
+        description: Submit the uploaded Apple build for review
+        default: false
+        type: boolean
+      apple_automatic_release:
+        description: Automatically release after Apple approval
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: dajoong-mobile-release
+  cancel-in-progress: false
+
+jobs:
+  configuration:
+    environment: production
+    runs-on: ubuntu-latest
+    outputs:
+      authority: ${{ steps.identity.outputs.authority }}
+      client_id: ${{ steps.identity.outputs.client_id }}
+      google_enabled: ${{ steps.identity.outputs.google_enabled }}
+      apple_enabled: ${{ steps.identity.outputs.apple_enabled }}
+      kakao_enabled: ${{ steps.identity.outputs.kakao_enabled }}
+    env:
+      AWS_REGION: ${{ vars.STUDIO_AWS_REGION || 'us-west-2' }}
+      TF_STATE_REGION: ${{ vars.TF_STATE_REGION || 'us-west-1' }}
+      TF_STATE_KEY: dajoong/plan2bim-studio/production.tfstate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+      - id: identity
+        name: Resolve the deployed public identity configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          account_id=$(aws sts get-caller-identity --query Account --output text)
+          state_bucket="dajoong-terraform-state-${account_id}-${TF_STATE_REGION}"
+          terraform -chdir=apps/plan2bim-studio/infra/terraform init \
+            -backend-config="bucket=${state_bucket}" \
+            -backend-config="key=${TF_STATE_KEY}" \
+            -backend-config="region=${TF_STATE_REGION}" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+          authority=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw cognito_authority)
+          client_id=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw user_pool_client_id)
+          user_pool_id=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw user_pool_id)
+          providers=$(aws cognito-idp describe-user-pool-client --user-pool-id "$user_pool_id" --client-id "$client_id" --query 'UserPoolClient.SupportedIdentityProviders' --output text)
+          [[ " $providers " == *" Google "* ]] && google=true || google=false
+          [[ " $providers " == *" SignInWithApple "* ]] && apple=true || apple=false
+          [[ " $providers " == *" Kakao "* ]] && kakao=true || kakao=false
+          {
+            echo "authority=$authority"
+            echo "client_id=$client_id"
+            echo "google_enabled=$google"
+            echo "apple_enabled=$apple"
+            echo "kakao_enabled=$kakao"
+          } >> "$GITHUB_OUTPUT"
+
+  android:
+    needs: configuration
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: apps/plan2bim-studio/frontend
+    env:
+      VITE_STUDIO_API_URL: https://studio-api.builiconstruction.com
+      VITE_COGNITO_AUTHORITY: ${{ needs.configuration.outputs.authority }}
+      VITE_COGNITO_CLIENT_ID: ${{ needs.configuration.outputs.client_id }}
+      VITE_NATIVE_REDIRECT_URI: com.dajoong.plan2bim://auth/callback
+      VITE_NATIVE_LOGOUT_URI: com.dajoong.plan2bim://auth/logout
+      VITE_AUTH_GOOGLE_ENABLED: ${{ needs.configuration.outputs.google_enabled }}
+      VITE_AUTH_APPLE_ENABLED: ${{ needs.configuration.outputs.apple_enabled }}
+      VITE_AUTH_KAKAO_ENABLED: ${{ needs.configuration.outputs.kakao_enabled }}
+      DAJOONG_VERSION_NAME: ${{ inputs.version_name }}
+      DAJOONG_VERSION_CODE: ${{ inputs.version_code }}
+      DAJOONG_ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/apps/plan2bim-studio/frontend/android/release.keystore
+      DAJOONG_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      DAJOONG_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      DAJOONG_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+      GOOGLE_PLAY_TRACK: ${{ inputs.google_track }}
+      GOOGLE_PLAY_RELEASE_STATUS: ${{ inputs.google_release_status }}
+      DAJOONG_AAB_PATH: ${{ github.workspace }}/apps/plan2bim-studio/frontend/android/app/build/outputs/bundle/release/app-release.aab
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/plan2bim-studio/frontend/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: apps/plan2bim-studio/frontend
+      - name: Validate Android signing inputs
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          for name in KEYSTORE_BASE64 DAJOONG_ANDROID_KEY_ALIAS DAJOONG_ANDROID_KEYSTORE_PASSWORD DAJOONG_ANDROID_KEY_PASSWORD; do
+            test -n "${!name:-}" || { echo "Missing Android signing key: $name" >&2; exit 1; }
+          done
+          if [[ "${{ inputs.publish_google }}" == "true" ]]; then
+            test -n "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" || { echo "Missing GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" >&2; exit 1; }
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$DAJOONG_ANDROID_KEYSTORE_PATH"
+          chmod 600 "$DAJOONG_ANDROID_KEYSTORE_PATH"
+      - run: npm ci
+      - run: npm test
+      - name: Build and synchronize the native client
+        run: npm run build && npx cap sync android
+      - name: Build the signed Play App Bundle
+        working-directory: apps/plan2bim-studio/frontend/android
+        run: ./gradlew bundleRelease --no-daemon --stacktrace
+      - name: Generate verified store screenshots
+        run: npx playwright install --with-deps chromium && npm run store:screenshots
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dajoong-android-${{ inputs.version_name }}-${{ inputs.version_code }}
+          path: |
+            apps/plan2bim-studio/frontend/android/app/build/outputs/bundle/release/app-release.aab
+            apps/plan2bim-studio/frontend/store/google-play
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload to Google Play
+        if: ${{ inputs.publish_google }}
+        run: bundle exec fastlane android release
+      - name: Remove signing material
+        if: always()
+        run: rm -f "$DAJOONG_ANDROID_KEYSTORE_PATH"
+
+  ios:
+    needs: configuration
+    environment: production
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: apps/plan2bim-studio/frontend
+    env:
+      VITE_STUDIO_API_URL: https://studio-api.builiconstruction.com
+      VITE_COGNITO_AUTHORITY: ${{ needs.configuration.outputs.authority }}
+      VITE_COGNITO_CLIENT_ID: ${{ needs.configuration.outputs.client_id }}
+      VITE_NATIVE_REDIRECT_URI: com.dajoong.plan2bim://auth/callback
+      VITE_NATIVE_LOGOUT_URI: com.dajoong.plan2bim://auth/logout
+      VITE_AUTH_GOOGLE_ENABLED: ${{ needs.configuration.outputs.google_enabled }}
+      VITE_AUTH_APPLE_ENABLED: ${{ needs.configuration.outputs.apple_enabled }}
+      VITE_AUTH_KAKAO_ENABLED: ${{ needs.configuration.outputs.kakao_enabled }}
+      DAJOONG_VERSION_NAME: ${{ inputs.version_name }}
+      DAJOONG_VERSION_CODE: ${{ inputs.version_code }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+      APPLE_SUBMIT_FOR_REVIEW: ${{ inputs.submit_apple_for_review }}
+      APPLE_AUTOMATIC_RELEASE: ${{ inputs.apple_automatic_release }}
+      APP_REVIEW_FIRST_NAME: ${{ vars.APP_REVIEW_FIRST_NAME || 'Paul' }}
+      APP_REVIEW_LAST_NAME: ${{ vars.APP_REVIEW_LAST_NAME || 'Cho' }}
+      APP_REVIEW_PHONE: ${{ secrets.APP_REVIEW_PHONE }}
+      APP_REVIEW_EMAIL: jjoonghui@gmail.com
+      APP_REVIEW_DEMO_USER: ${{ secrets.APP_REVIEW_DEMO_USER }}
+      APP_REVIEW_DEMO_PASSWORD: ${{ secrets.APP_REVIEW_DEMO_PASSWORD }}
+      APP_REVIEW_NOTES: ${{ vars.APP_REVIEW_NOTES }}
+      DAJOONG_IPA_PATH: ${{ github.workspace }}/apps/plan2bim-studio/frontend/build/ios-export/App.ipa
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/plan2bim-studio/frontend/package-lock.json
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: apps/plan2bim-studio/frontend
+      - name: Validate Apple signing and review inputs
+        shell: bash
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in CERTIFICATE_BASE64 CERTIFICATE_PASSWORD APPLE_TEAM_ID APP_STORE_CONNECT_API_KEY_ID APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_API_KEY_BASE64; do
+            test -n "${!name:-}" || { echo "Missing Apple release key: $name" >&2; exit 1; }
+          done
+          if [[ "$APPLE_SUBMIT_FOR_REVIEW" == "true" ]]; then
+            for name in APP_REVIEW_PHONE APP_REVIEW_DEMO_USER APP_REVIEW_DEMO_PASSWORD; do
+              test -n "${!name:-}" || { echo "Missing Apple review value: $name" >&2; exit 1; }
+            done
+          fi
+          keychain_password=$(openssl rand -base64 32)
+          echo "::add-mask::$keychain_password"
+          {
+            echo "KEYCHAIN_PASSWORD=$keychain_password"
+            echo "KEYCHAIN_PATH=$RUNNER_TEMP/dajoong-signing.keychain-db"
+          } >> "$GITHUB_ENV"
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/distribution.p12"
+          printf '%s' "$APP_STORE_CONNECT_API_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
+          chmod 600 "$RUNNER_TEMP/distribution.p12" "$RUNNER_TEMP/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
+          security create-keychain -p "$keychain_password" "$RUNNER_TEMP/dajoong-signing.keychain-db"
+          security set-keychain-settings -lut 21600 "$RUNNER_TEMP/dajoong-signing.keychain-db"
+          security unlock-keychain -p "$keychain_password" "$RUNNER_TEMP/dajoong-signing.keychain-db"
+          security import "$RUNNER_TEMP/distribution.p12" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$RUNNER_TEMP/dajoong-signing.keychain-db"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$RUNNER_TEMP/dajoong-signing.keychain-db"
+          security list-keychains -d user -s "$RUNNER_TEMP/dajoong-signing.keychain-db" login.keychain-db
+      - run: npm ci
+      - run: npm test
+      - name: Build and synchronize the native client
+        run: npm run build && npx cap sync ios
+      - name: Archive the signed iOS application
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$PWD/build/Dajoong.xcarchive" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            MARKETING_VERSION="$DAJOONG_VERSION_NAME" \
+            CURRENT_PROJECT_VERSION="$DAJOONG_VERSION_CODE" \
+            CODE_SIGN_STYLE=Automatic \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8" \
+            -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" \
+            -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID" \
+            clean archive
+          cp ios/App/ExportOptions.plist.template "$RUNNER_TEMP/ExportOptions.plist"
+          /usr/libexec/PlistBuddy -c "Set :teamID $APPLE_TEAM_ID" "$RUNNER_TEMP/ExportOptions.plist"
+          mkdir -p build/ios-export
+          xcodebuild -exportArchive \
+            -archivePath "$PWD/build/Dajoong.xcarchive" \
+            -exportPath "$PWD/build/ios-export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8" \
+            -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" \
+            -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID"
+          test -f "$DAJOONG_IPA_PATH"
+      - name: Generate verified store screenshots
+        run: npx playwright install chromium && npm run store:screenshots
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dajoong-ios-${{ inputs.version_name }}-${{ inputs.version_code }}
+          path: |
+            apps/plan2bim-studio/frontend/build/ios-export/App.ipa
+            apps/plan2bim-studio/frontend/store/app-store
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload to App Store Connect
+        if: ${{ inputs.publish_apple }}
+        run: bundle exec fastlane ios release
+      - name: Remove Apple signing material
+        if: always()
+        shell: bash
+        run: |
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/distribution.p12" "$RUNNER_TEMP/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8" "$RUNNER_TEMP/ExportOptions.plist"

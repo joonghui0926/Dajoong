@@ -1,0 +1,56 @@
+default_platform(:ios)
+
+platform :ios do
+  desc "Upload the signed IPA, listing metadata, and screenshots to App Store Connect"
+  lane :release do
+    submit_for_review = ENV.fetch("APPLE_SUBMIT_FOR_REVIEW", "false") == "true"
+    review_information = if submit_for_review
+      {
+        first_name: ENV.fetch("APP_REVIEW_FIRST_NAME", "Paul"),
+        last_name: ENV.fetch("APP_REVIEW_LAST_NAME", "Cho"),
+        phone_number: ENV.fetch("APP_REVIEW_PHONE"),
+        email_address: ENV.fetch("APP_REVIEW_EMAIL", "jjoonghui@gmail.com"),
+        demo_user: ENV.fetch("APP_REVIEW_DEMO_USER"),
+        demo_password: ENV.fetch("APP_REVIEW_DEMO_PASSWORD"),
+        notes: ENV.fetch("APP_REVIEW_NOTES", "Use the supplied review account. The sample project contains non-sensitive demonstration drawings.")
+      }
+    end
+    api_key = app_store_connect_api_key(
+      key_id: ENV.fetch("APP_STORE_CONNECT_API_KEY_ID"),
+      issuer_id: ENV.fetch("APP_STORE_CONNECT_ISSUER_ID"),
+      key_content: ENV.fetch("APP_STORE_CONNECT_API_KEY_BASE64"),
+      is_key_content_base64: true
+    )
+    upload_to_app_store(
+      api_key: api_key,
+      ipa: ENV.fetch("DAJOONG_IPA_PATH"),
+      metadata_path: "store/app-store/metadata",
+      screenshots_path: "store/app-store/screenshots",
+      app_version: ENV.fetch("DAJOONG_VERSION_NAME"),
+      skip_binary_upload: false,
+      skip_metadata: false,
+      skip_screenshots: false,
+      submit_for_review: submit_for_review,
+      automatic_release: ENV.fetch("APPLE_AUTOMATIC_RELEASE", "false") == "true",
+      app_review_information: review_information,
+      precheck_include_in_app_purchases: false,
+      force: true
+    )
+  end
+end
+
+platform :android do
+  desc "Upload the signed AAB and listing metadata to Google Play"
+  lane :release do
+    upload_to_play_store(
+      package_name: "com.dajoong.plan2bim",
+      json_key_data: ENV.fetch("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"),
+      aab: ENV.fetch("DAJOONG_AAB_PATH"),
+      track: ENV.fetch("GOOGLE_PLAY_TRACK", "internal"),
+      release_status: ENV.fetch("GOOGLE_PLAY_RELEASE_STATUS", "draft"),
+      metadata_path: "store/google-play/metadata",
+      skip_upload_images: false,
+      skip_upload_screenshots: false
+    )
+  end
+end

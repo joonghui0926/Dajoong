@@ -1,0 +1,1 @@
+Turn a floor plan into source-linked, editable building geometry and review every decision before export.

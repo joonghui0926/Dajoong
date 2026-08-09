@@ -1,0 +1,14 @@
+Dajoong Proprietary Software License
+
+Copyright (c) 2026 Dajoong. All rights reserved.
+
+This source code and its associated model adapters, schemas, training recipes,
+spatial compiler rules, evaluation policies, and documentation are confidential
+and proprietary to Dajoong. No permission is granted to copy, modify,
+distribute, sublicense, publish, or use this software outside Dajoong without a
+separate written agreement signed by Dajoong.
+
+Third-party model weights, datasets, and libraries remain subject to their own
+licenses. Nothing in this notice expands or replaces those third-party terms.
+
+THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND.

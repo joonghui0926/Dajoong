@@ -1,0 +1,1 @@
+Initial release: drawing conversion, linked 2D/3D review, model editing, and IFC/GLB export.

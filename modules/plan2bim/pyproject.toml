@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "buili-plan2bim"
+version = "0.1.0"
+description = "Dajoong standalone CPU pipeline for converting image and PDF floor plans into review-gated BIM"
+requires-python = ">=3.10,<3.14"
+authors = [{ name = "Dajoong" }]
+license = { file = "LICENSE" }
+dependencies = [
+  "numpy>=1.26,<3",
+  "onnxruntime>=1.20,<2",
+  "Pillow>=10.3,<13",
+  "pypdfium2>=4.30,<6",
+  "pydantic>=2.8,<3",
+  "scipy>=1.13,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<10",
+  "ruff>=0.9,<1",
+]
+
+[project.scripts]
+buili-plan2bim = "buili_plan2bim.cli:main"
+dajoong-plan2bim = "buili_plan2bim.cli:main"
+dajoong-building2bim = "buili_plan2bim.building_cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+buili_plan2bim = [
+  "models/*.onnx",
+  "models/*.json",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
