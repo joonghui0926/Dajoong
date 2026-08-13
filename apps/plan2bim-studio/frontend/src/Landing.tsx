@@ -234,7 +234,7 @@ export function Landing() {
           <div className="studio-embed-meta"><span><i /> LIVE CUBI-020 WORKSPACE</span><b>Actual Studio tools · collaboration shown below</b></div>
           <iframe
             title="Interactive CUBI-020 Dajoong Studio workspace"
-            src="https://studio.dajoongbim.com/studio?embed=landing&demo=cubi-020"
+            src="/studio?embed=landing&demo=cubi-020"
             loading="lazy"
             onLoad={handleEmbeddedStudioLoad}
           />
