@@ -1536,7 +1536,7 @@ button { color: inherit; }
 .checkout-step { color: #5d7781; font: 720 9px ui-monospace, monospace; letter-spacing: .13em; }
 .checkout-panel h1 { margin: 13px 0 7px; font-size: clamp(29px, 3vw, 39px); font-weight: 560; line-height: 1.04; letter-spacing: -.052em; }
 .checkout-panel header p { margin: 0; color: #687b82; font: 430 11px/1.5 var(--font-copy); }
-.checkout-free-status { margin-top: 20px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; padding: 11px 13px; border: 1px solid #c8d7d0; border-radius: 12px; color: #2f6653; background: #eef4ef; }
+.checkout-free-status { margin-top: 20px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; padding: 11px 13px; border: 1px solid #d4dcd9; border-radius: 12px; color: #2f6653; background: #fff; }
 .checkout-free-status div { display: grid; gap: 3px; }
 .checkout-free-status strong { font-size: 10px; }
 .checkout-free-status span { color: #6a7e75; font-size: 8px; }
@@ -1856,7 +1856,7 @@ button { color: inherit; }
 .google-mark { color: #4285f4; font-size: 24px; }
 
 .checkout-provider-note, .checkout-error { margin-top: 11px; display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-radius: 8px; font-size: 8px; }
-.checkout-provider-note { color: #755f2c; background: #f2ead4; }
+.checkout-provider-note { color: #6f6348; border: 1px solid #dedbd2; background: #fff; }
 .checkout-error { color: #954b42; background: #f7e8e4; }
 .checkout-pay { min-height: 50px; margin-top: auto; display: grid; grid-template-columns: 22px 1fr 22px; align-items: center; gap: 9px; padding: 0 17px; border: 0; border-radius: 12px; color: white; background: #0d242d; box-shadow: 0 13px 28px #112c3740; cursor: pointer; }
 .checkout-pay span { font-size: 11px; font-weight: 740; }
