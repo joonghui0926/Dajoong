@@ -1,9 +1,15 @@
-import { useState } from "react";
-import { hasGlobalPrivacyControl, readConsent, saveConsent } from "../consent";
+import { useEffect, useState } from "react";
+import { hasGlobalPrivacyControl, persistConsent, readConsent, saveConsent } from "../consent";
 
 export function CookieBanner() {
   const [visible, setVisible] = useState(() => !readConsent());
   const [gpc] = useState(() => hasGlobalPrivacyControl());
+
+  useEffect(() => {
+    const consent = readConsent();
+    if (consent) persistConsent(consent);
+  }, []);
+
   if (!visible) return null;
 
   const choose = (analytics: boolean) => {
