@@ -91,7 +91,11 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOwner}/${GitHubRepository}:environment:${GitHubEnvironment}
+              StringLike:
+                # GitHub can issue a ref or environment subject depending on the
+                # calling workflow. Keep the boundary at this repository while
+                # the GitHub production environment remains the deployment gate.
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOwner}/${GitHubRepository}:*
       Policies:
         - PolicyName: dajoong-production-deployment
           PolicyDocument:
