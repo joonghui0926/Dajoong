@@ -2040,6 +2040,10 @@ button { color: inherit; }
 .auth-provider-icon { width: 32px; height: 32px; display: grid; place-items: center; justify-self: start; }
 .auth-provider-icon svg { width: 21px; height: 21px; }
 .auth-provider-icon.google-mark svg { width: 24px; height: 24px; }
+.auth-google-inline { margin-top: 24px; }
+.auth-google-account-note { margin: 9px 0 0; color: #728187; font: 520 10px/1.45 var(--font-copy); text-align: center; }
+.auth-method-divider { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 11px; margin: 20px 0 -6px; color: #849095; font: 600 9px/1 var(--font-copy); letter-spacing: .02em; text-transform: uppercase; }
+.auth-method-divider::before, .auth-method-divider::after { content: ""; height: 1px; background: #dce3e1; }
 .auth-provider-arrow { justify-self: end; opacity: .76; transition: transform 140ms ease; }
 .auth-provider-primary { color: white; border-color: #102c38; background: #102c38; box-shadow: 0 8px 20px #102c3824; }
 .auth-provider-primary:hover { color: white; border-color: #173e4d; background: #173e4d; box-shadow: 0 10px 24px #102c3830; }

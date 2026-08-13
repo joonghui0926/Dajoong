@@ -184,6 +184,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
           </> : <>
             <button className="auth-back-button" type="button" onClick={() => moveTo("choose")}><ArrowLeft size={15} />All sign-in options</button>
             <div className="auth-card-heading"><span>{view === "sign-up" ? "NEW ACCOUNT" : view === "sign-in" ? "WELCOME BACK" : "VERIFY YOUR EMAIL"}</span><h2>{title}</h2><p>{subtitle}</p></div>
+            {(view === "sign-in" || view === "sign-up") && googleAuthEnabled ? <>
+              <button className="auth-provider-button auth-google-button auth-google-inline" type="button" onClick={() => void beginGoogleSignIn()}>
+                <span className="auth-provider-icon google-mark"><GoogleMark /></span>
+                <span>Continue with Google</span>
+                <ArrowRight className="auth-provider-arrow" size={17} strokeWidth={1.8} />
+              </button>
+              <p className="auth-google-account-note">New to Dajoong? Your account is created automatically.</p>
+              <div className="auth-method-divider"><span>or continue with email</span></div>
+            </> : null}
             <form className="auth-email-form" onSubmit={submitEmail}>
               <label>Email address<div><Mail size={17} /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@company.com" autoComplete="email" required disabled={view === "confirm" || view === "reset"} /></div></label>
               {hasCode ? <label>Verification code<div><ShieldCheck size={17} /><input value={verificationCode} onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" placeholder="000000" required /></div></label> : null}
