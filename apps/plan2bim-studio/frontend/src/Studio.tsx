@@ -2955,8 +2955,16 @@ export function Studio() {
               <button className="secondary-button" onClick={openCheckout}><WalletCards size={17} /> View plans</button>
             </div>
           </div>
-          <div className="studio-empty-stage" aria-hidden="true">
-            <span>2D DRAWING</span><i /><span>EDITABLE BIM</span>
+          <div className="studio-empty-stage" aria-label="Preview of a reviewed drawing and its BIM result">
+            <figure>
+              <img src="/marketing/cubi-014-reviewed-source.webp" alt="Reviewed CUBI-014 architectural drawing" width="2037" height="1240" decoding="async" />
+              <figcaption><span>2D DRAWING</span><small>REVIEWED SOURCE</small></figcaption>
+            </figure>
+            <i aria-hidden="true" />
+            <figure>
+              <img src="/marketing/cubi-014-reviewed-bim.webp" alt="Stored editable BIM result for the same CUBI-014 drawing" width="1600" height="1000" decoding="async" />
+              <figcaption><span>EDITABLE BIM</span><small>PREVIEW ONLY · NOT LOADED</small></figcaption>
+            </figure>
           </div>
           <p className="studio-empty-notice">{notice}</p>
         </section>
