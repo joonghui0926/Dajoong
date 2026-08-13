@@ -11,6 +11,7 @@ const ASSOCIATION_PATHS = new Set(['/.well-known/apple-app-site-association', '/
 
 function secure(response: Response, requestUrl: URL): Response {
   const headers = new Headers(response.headers);
+  const isEmbeddableStudio = requestUrl.hostname === STUDIO_HOST && requestUrl.pathname.startsWith('/studio');
   headers.set('Content-Security-Policy', [
     "default-src 'self'",
     "script-src 'self'",
@@ -22,11 +23,14 @@ function secure(response: Response, requestUrl: URL): Response {
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
-    "frame-ancestors 'none'",
+    isEmbeddableStudio
+      ? "frame-ancestors 'self' https://dajoongbim.com https://www.dajoongbim.com"
+      : "frame-ancestors 'none'",
   ].join('; '));
   headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
   headers.set('X-Content-Type-Options', 'nosniff');
-  headers.set('X-Frame-Options', 'DENY');
+  if (isEmbeddableStudio) headers.delete('X-Frame-Options');
+  else headers.set('X-Frame-Options', 'DENY');
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   headers.set('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
