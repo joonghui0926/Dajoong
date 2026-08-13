@@ -20,6 +20,7 @@ function secure(response: Response, requestUrl: URL): Response {
     "font-src 'self' data:",
     "connect-src 'self' https://studio-api.dajoongbim.com https://*.amazoncognito.com https://*.amazonaws.com",
     "worker-src 'self' blob:",
+    "frame-src 'self' https://studio.dajoongbim.com",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
