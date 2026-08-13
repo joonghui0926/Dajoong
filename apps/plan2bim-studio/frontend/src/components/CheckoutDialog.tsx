@@ -47,9 +47,10 @@ interface CheckoutDialogProps {
   requiredUnits: number;
   onClose: () => void;
   onPaid: () => void;
+  onContinue?: () => void;
 }
 
-export function CheckoutDialog({ context, requiredUnits, onClose, onPaid }: CheckoutDialogProps) {
+export function CheckoutDialog({ context, requiredUnits, onClose, onPaid, onContinue }: CheckoutDialogProps) {
   const creditsToBuy = Math.max(
     1,
     requiredUnits - context.free_units_remaining - context.paid_units,
@@ -69,6 +70,9 @@ export function CheckoutDialog({ context, requiredUnits, onClose, onPaid }: Chec
   const total = plan === "unlimited_monthly"
     ? activeContext.monthly_amount
     : activeContext.unit_amount * creditsToBuy;
+  const conversionCovered = activeContext.free_units_remaining >= requiredUnits
+    || activeContext.paid_units >= requiredUnits
+    || activeContext.unlimited_active;
   const baselineCredits = context.paid_units;
 
   useEffect(() => {
@@ -300,9 +304,18 @@ export function CheckoutDialog({ context, requiredUnits, onClose, onPaid }: Chec
           ) : null}
           {error ? <div className="checkout-error">{error}</div> : null}
 
+          {onContinue && conversionCovered ? (
+            <button className="checkout-pay" type="button" onClick={onContinue}>
+              <Check size={17} />
+              <span>{activeContext.free_units_remaining >= requiredUnits ? "Continue with free drawing" : "Continue to upload"}</span>
+              <ArrowRight size={17} />
+            </button>
+          ) : null}
+
           <button
             className="checkout-pay"
             type="button"
+            hidden={Boolean(onContinue && conversionCovered)}
             disabled={busy || waiting || activeContext.configured_providers.length === 0}
             onClick={() => void beginPayment()}
           >

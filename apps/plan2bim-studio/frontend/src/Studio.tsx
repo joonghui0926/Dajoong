@@ -43,7 +43,7 @@ import type { PatternMode } from "./components/PatternDialog";
 import { SelectionActionBar } from "./components/SelectionActionBar";
 import { SelectionFilterControl } from "./components/SelectionFilterControl";
 import { authConfigured, authFetch, signOut } from "./auth";
-import { completeTossReturn, loadCheckoutContext, type CheckoutContext } from "./billing";
+import { completeTossReturn, loadCheckoutContext, unavailableCheckoutContext, type CheckoutContext } from "./billing";
 import { studioApiUrl } from "./serverApi";
 import { isBundledStudioSampleGraph, loadVerifiedStudioSample } from "./sampleIntegrity";
 import { DeferredJsonStorage } from "./deferredJsonStorage";
@@ -579,6 +579,7 @@ export function Studio() {
   const [workspacePresence, setWorkspacePresence] = useState<WorkspacePresence[]>([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [checkoutContext, setCheckoutContext] = useState<CheckoutContext | null>(null);
+  const [checkoutForConversion, setCheckoutForConversion] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [recentCommandIds, setRecentCommandIds] = useState(loadRecentCommandIds);
   const [jobId, setJobId] = useState("");
@@ -620,24 +621,22 @@ export function Studio() {
   const graph = session.present?.graph ?? null;
   const operations = session.present?.operations ?? [];
   const openCheckout = useCallback(() => {
+    setCheckoutForConversion(false);
     void loadCheckoutContext()
       .then(setCheckoutContext)
-      .catch((caught) => setNotice(caught instanceof Error ? caught.message : "Could not open checkout."));
+      .catch(() => {
+        setCheckoutContext(unavailableCheckoutContext());
+        setNotice("Billing is reconnecting. Your workspace is unchanged.");
+      });
   }, []);
   const openConversion = useCallback(() => {
+    setCheckoutForConversion(true);
     void loadCheckoutContext()
-      .then((context) => {
-        const needsPayment = context.billing_enforced
-          && context.free_units_remaining < 1
-          && context.paid_units < 1
-          && !context.unlimited_active;
-        if (needsPayment) {
-          setCheckoutContext(context);
-          return;
-        }
-        setConversionOpen(true);
-      })
-      .catch(() => setConversionOpen(true));
+      .then(setCheckoutContext)
+      .catch(() => {
+        setCheckoutContext(unavailableCheckoutContext());
+        setNotice("Conversion service is reconnecting. Upload remains protected.");
+      });
   }, []);
   useEffect(() => {
     const checkout = new URLSearchParams(window.location.search).get("checkout");
@@ -2986,9 +2985,18 @@ export function Studio() {
             <CheckoutDialog
               context={checkoutContext}
               requiredUnits={1}
-              onClose={() => setCheckoutContext(null)}
+              onClose={() => {
+                setCheckoutContext(null);
+                setCheckoutForConversion(false);
+              }}
+              onContinue={checkoutForConversion ? () => {
+                setCheckoutContext(null);
+                setCheckoutForConversion(false);
+                setConversionOpen(true);
+              } : undefined}
               onPaid={() => {
                 setCheckoutContext(null);
+                setCheckoutForConversion(false);
                 setNotice("Payment confirmed. Your conversion is ready.");
                 setConversionOpen(true);
               }}
@@ -3486,10 +3494,20 @@ export function Studio() {
           <CheckoutDialog
             context={checkoutContext}
             requiredUnits={1}
-            onClose={() => setCheckoutContext(null)}
+            onClose={() => {
+              setCheckoutContext(null);
+              setCheckoutForConversion(false);
+            }}
+            onContinue={checkoutForConversion ? () => {
+              setCheckoutContext(null);
+              setCheckoutForConversion(false);
+              setConversionOpen(true);
+            } : undefined}
             onPaid={() => {
               setCheckoutContext(null);
+              setCheckoutForConversion(false);
               setNotice("Payment confirmed. Your conversion credit is ready.");
+              if (checkoutForConversion) setConversionOpen(true);
             }}
           />
         </Suspense>

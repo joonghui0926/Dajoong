@@ -67,6 +67,27 @@ const benchmarkDefaults = {
   speed_turnaround_source_url: "https://support.twindo.com/article/721-how-long-will-it-take-to-receive-my-order",
 } as const;
 
+export function unavailableCheckoutContext(): CheckoutContext {
+  const country = navigator.language.toLowerCase().startsWith("ko") ? "KR" : "US";
+  return {
+    ...benchmarkDefaults,
+    country,
+    currency: country === "KR" ? "KRW" : "USD",
+    unit_amount: country === "KR" ? 5_000 : 399,
+    unit_label: country === "KR" ? "₩5,000 / drawing" : "$3.99 / drawing",
+    monthly_amount: country === "KR" ? 99_000 : benchmarkDefaults.monthly_amount,
+    monthly_label: country === "KR" ? "₩99,000 / month" : benchmarkDefaults.monthly_label,
+    free_units_remaining: 0,
+    paid_units: 0,
+    billing_enforced: true,
+    configured_providers: [],
+    native_provider: "",
+    comparison_multiple: 5,
+    comparison_basis: "Published comparison starting price",
+    comparison_source_url: "https://support.twindo.com/article/719-how-much-does-it-cost",
+  };
+}
+
 function normalizeCheckoutContext(context: CheckoutContext): CheckoutContext {
   return { ...benchmarkDefaults, ...context };
 }
