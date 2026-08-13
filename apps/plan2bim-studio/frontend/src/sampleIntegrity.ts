@@ -133,8 +133,8 @@ export async function loadVerifiedStudioSample(signal?: AbortSignal): Promise<Ve
 
   const revision = encodeURIComponent(manifest.revision);
   const [graphResponse, displaySourceResponse] = await Promise.all([
-    fetch(`${manifest.graph.path}?revision=${revision}`, { signal, cache: "no-store" }),
-    fetch(`${manifest.display_source.path}?revision=${revision}`, { signal, cache: "no-store" }),
+    fetch(`${manifest.graph.path}?revision=${revision}`, { signal, cache: "force-cache" }),
+    fetch(`${manifest.display_source.path}?revision=${revision}`, { signal, cache: "force-cache" }),
   ]);
   if (!graphResponse.ok) throw new Error(`sample graph returned ${graphResponse.status}`);
   if (!displaySourceResponse.ok) throw new Error(`sample source returned ${displaySourceResponse.status}`);

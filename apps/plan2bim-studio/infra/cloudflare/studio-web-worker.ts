@@ -12,6 +12,8 @@ const ASSOCIATION_PATHS = new Set(['/.well-known/apple-app-site-association', '/
 function secure(response: Response, requestUrl: URL): Response {
   const headers = new Headers(response.headers);
   const isEmbeddableStudio = requestUrl.hostname === STUDIO_HOST && requestUrl.pathname.startsWith('/studio');
+  const isHashedAsset = requestUrl.pathname.startsWith('/assets/');
+  const isRevisionedSample = requestUrl.pathname.startsWith('/sample/') && requestUrl.searchParams.has('revision');
   headers.set('Content-Security-Policy', [
     "default-src 'self'",
     "script-src 'self'",
@@ -36,6 +38,11 @@ function secure(response: Response, requestUrl: URL): Response {
   headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   headers.set('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
   headers.set('Cross-Origin-Resource-Policy', 'same-site');
+  if (isHashedAsset || isRevisionedSample) {
+    headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+  } else if (requestUrl.pathname === '/sw.js' || requestUrl.pathname.endsWith('/sample-manifest.json')) {
+    headers.set('Cache-Control', 'no-cache');
+  }
   if (requestUrl.pathname.startsWith('/.well-known/')) {
     headers.set('Content-Type', 'application/json; charset=utf-8');
     headers.set('Cache-Control', 'public, max-age=300');

@@ -1,4 +1,4 @@
-const CACHE = "dajoong-shell-v7";
+const CACHE = "dajoong-shell-v8";
 const SCOPE = self.registration.scope;
 const scoped = (path) => new URL(path, SCOPE).pathname;
 const SHELL = [
@@ -9,8 +9,6 @@ const SHELL = [
 ];
 const NETWORK_FIRST = new Set([
   scoped("./sample/sample-manifest.json"),
-  scoped("./sample/source.webp"),
-  scoped("./sample/03-plan-graph.json"),
 ]);
 
 self.addEventListener("install", (event) => {
@@ -46,6 +44,7 @@ self.addEventListener("fetch", (event) => {
   }
   event.respondWith(
     caches.match(request).then((cached) => cached || fetch(request).then((response) => {
+      if (!response.ok) return response;
       const copy = response.clone();
       caches.open(CACHE).then((cache) => cache.put(request, copy));
       return response;

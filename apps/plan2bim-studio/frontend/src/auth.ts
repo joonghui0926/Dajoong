@@ -1,6 +1,13 @@
 import { App as CapacitorApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
+import {
+  AuthenticationDetails,
+  CognitoUser,
+  CognitoUserAttribute,
+  CognitoUserPool,
+  type CognitoUserSession,
+} from "amazon-cognito-identity-js";
 import { UserManager, WebStorageStateStore, type INavigator, type IWindow, type NavigateParams, type NavigateResponse } from "oidc-client-ts";
 import { isTrustedStudioApiRequest } from "./serverApi";
 
@@ -57,12 +64,22 @@ class NativeRedirectNavigator implements INavigator {
 }
 
 export const authConfigured = Boolean(authority && clientId);
-export const enabledAuthProviders = {
-  email: true,
-  google: import.meta.env.VITE_AUTH_GOOGLE_ENABLED === "true",
-  apple: import.meta.env.VITE_AUTH_APPLE_ENABLED === "true",
-  kakao: import.meta.env.VITE_AUTH_KAKAO_ENABLED === "true",
-} as const;
+export const googleAuthEnabled = import.meta.env.VITE_AUTH_GOOGLE_ENABLED === "true";
+
+function cognitoPoolIdFromAuthority(value: string | undefined) {
+  if (!value) return "";
+  try {
+    const segments = new URL(value).pathname.split("/").filter(Boolean);
+    return segments.at(-1) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+const userPoolId = cognitoPoolIdFromAuthority(authority);
+const userPool = userPoolId && clientId
+  ? new CognitoUserPool({ UserPoolId: userPoolId, ClientId: clientId })
+  : null;
 
 const settings = authConfigured ? {
   authority,
@@ -169,10 +186,10 @@ export async function authFetch(
   throw lastError;
 }
 
-export async function signIn(provider?: "Google" | "SignInWithApple" | "Kakao") {
+export async function signInWithGoogle() {
   if (!userManager) throw new Error("Authentication is not configured");
   nativeResponseUrl = "";
-  await userManager.signinRedirect(provider ? { extraQueryParams: { identity_provider: provider } } : undefined);
+  await userManager.signinRedirect({ extraQueryParams: { identity_provider: "Google" } });
   if (!native) return null;
   if (!nativeResponseUrl) throw new Error("The identity provider did not return to Dajoong");
   const user = await userManager.signinRedirectCallback(nativeResponseUrl);
@@ -181,9 +198,113 @@ export async function signIn(provider?: "Google" | "SignInWithApple" | "Kakao") 
   return user;
 }
 
+function idTokenFromSession(session: CognitoUserSession) {
+  const token = session.getIdToken().getJwtToken();
+  if (!token) throw new Error("Identity token was not returned");
+  setBearerToken(token);
+  return token;
+}
+
+function requireUserPool() {
+  if (!userPool) throw new Error("Authentication is not configured");
+  return userPool;
+}
+
+function cognitoUser(email: string) {
+  return new CognitoUser({ Username: email.trim().toLowerCase(), Pool: requireUserPool() });
+}
+
+function friendlyAuthError(error: unknown) {
+  const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+  if (code === "UserNotFoundException" || code === "NotAuthorizedException") return "Email or password is incorrect.";
+  if (code === "UsernameExistsException") return "An account already exists for this email.";
+  if (code === "CodeMismatchException") return "That verification code is not correct.";
+  if (code === "ExpiredCodeException") return "That verification code expired. Request a new one.";
+  if (code === "LimitExceededException" || code === "TooManyRequestsException") return "Too many attempts. Wait a moment and try again.";
+  if (code === "InvalidPasswordException") return "Use at least 12 characters with uppercase, lowercase, a number, and a symbol.";
+  return error instanceof Error ? error.message : "Authentication could not be completed.";
+}
+
+export function signInWithEmail(email: string, password: string) {
+  return new Promise<string>((resolve, reject) => {
+    cognitoUser(email).authenticateUser(new AuthenticationDetails({ Username: email.trim().toLowerCase(), Password: password }), {
+      onSuccess: (session) => resolve(idTokenFromSession(session)),
+      onFailure: (error) => reject(new Error(friendlyAuthError(error))),
+      newPasswordRequired: () => reject(new Error("This account needs an administrator password reset.")),
+    });
+  });
+}
+
+export function signUpWithEmail(email: string, password: string) {
+  return new Promise<void>((resolve, reject) => {
+    const normalized = email.trim().toLowerCase();
+    requireUserPool().signUp(normalized, password, [new CognitoUserAttribute({ Name: "email", Value: normalized })], [], (error) => {
+      if (error) reject(new Error(friendlyAuthError(error)));
+      else resolve();
+    });
+  });
+}
+
+export function confirmEmailSignUp(email: string, code: string) {
+  return new Promise<void>((resolve, reject) => {
+    cognitoUser(email).confirmRegistration(code.trim(), true, (error) => {
+      if (error) reject(new Error(friendlyAuthError(error)));
+      else resolve();
+    });
+  });
+}
+
+export function resendEmailConfirmation(email: string) {
+  return new Promise<void>((resolve, reject) => {
+    cognitoUser(email).resendConfirmationCode((error) => {
+      if (error) reject(new Error(friendlyAuthError(error)));
+      else resolve();
+    });
+  });
+}
+
+export function requestPasswordReset(email: string) {
+  return new Promise<void>((resolve, reject) => {
+    cognitoUser(email).forgotPassword({
+      onSuccess: () => resolve(),
+      onFailure: (error) => reject(new Error(friendlyAuthError(error))),
+      inputVerificationCode: () => resolve(),
+    });
+  });
+}
+
+export function confirmPasswordReset(email: string, code: string, password: string) {
+  return new Promise<void>((resolve, reject) => {
+    cognitoUser(email).confirmPassword(code.trim(), password, {
+      onSuccess: () => resolve(),
+      onFailure: (error) => reject(new Error(friendlyAuthError(error))),
+    });
+  });
+}
+
+export function restoreEmailSession() {
+  return new Promise<boolean>((resolve) => {
+    const currentUser = userPool?.getCurrentUser();
+    if (!currentUser) {
+      resolve(false);
+      return;
+    }
+    currentUser.getSession((error: Error | null, session: CognitoUserSession | null) => {
+      if (error || !session?.isValid()) {
+        currentUser.signOut();
+        resolve(false);
+        return;
+      }
+      idTokenFromSession(session);
+      resolve(true);
+    });
+  });
+}
+
 export async function signOut() {
   setBearerToken("");
   setActiveOrganizationId("");
+  userPool?.getCurrentUser()?.signOut();
   if (!userManager) return;
   if (native) {
     await userManager.removeUser();

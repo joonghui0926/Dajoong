@@ -84,8 +84,13 @@ class CheckoutContext(BaseModel):
     native_provider: Literal["apple", "google", ""] = ""
     comparison_multiple: float = 5.01
     comparison_basis: str = "T-company $20 minimum 3D order"
-    monthly_comparison_multiple: float = 5.06
-    monthly_comparison_basis: str = "20 drawings at the T-company $20 order minimum"
+    monthly_comparison_multiple: float = 4.81
+    monthly_comparison_basis: str = (
+        "Autodesk Revit standard monthly subscription ($380/month)"
+    )
+    monthly_comparison_source_url: str = (
+        "https://www.autodesk.com/solutions/revit-subscription-faq"
+    )
     comparison_source_url: str = (
         "https://support.twindo.com/article/716-how-does-scan-to-cad-pricing-work"
     )

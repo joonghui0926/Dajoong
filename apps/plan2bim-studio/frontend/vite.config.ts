@@ -4,6 +4,9 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   base: process.env.DAJOONG_EMBED_WEB === "true" ? "/studio/" : "/",
   plugins: [react()],
+  // amazon-cognito-identity-js still reads the browser global through the
+  // Node-compatible `global` name in one dependency.
+  define: { global: "globalThis" },
   css: {
     // Keep Studio builds isolated from user-level PostCSS and Tailwind configs.
     postcss: { plugins: [] },

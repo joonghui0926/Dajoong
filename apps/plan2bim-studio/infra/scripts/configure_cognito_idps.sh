@@ -33,18 +33,6 @@ if [[ -n "${GOOGLE_OAUTH_CLIENT_ID:-}" && -n "${GOOGLE_OAUTH_CLIENT_SECRET:-}" ]
     '{"email":"email","name":"name","picture":"picture"}'
 fi
 
-if [[ -n "${APPLE_SERVICE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_SIGN_IN_KEY_ID:-}" && -n "${APPLE_SIGN_IN_PRIVATE_KEY:-}" ]]; then
-  upsert_provider SignInWithApple SignInWithApple \
-    "$(jq -nc --arg id "$APPLE_SERVICE_ID" --arg team "$APPLE_TEAM_ID" --arg key "$APPLE_SIGN_IN_KEY_ID" --arg private "$APPLE_SIGN_IN_PRIVATE_KEY" '{client_id:$id,team_id:$team,key_id:$key,private_key:$private,authorize_scopes:"name email"}')" \
-    '{"email":"email","name":"name"}'
-fi
-
-if [[ -n "${KAKAO_OIDC_CLIENT_ID:-}" && -n "${KAKAO_OIDC_CLIENT_SECRET:-}" ]]; then
-  upsert_provider Kakao OIDC \
-    "$(jq -nc --arg id "$KAKAO_OIDC_CLIENT_ID" --arg secret "$KAKAO_OIDC_CLIENT_SECRET" '{oidc_issuer:"https://kauth.kakao.com",client_id:$id,client_secret:$secret,authorize_scopes:"openid profile_nickname profile_image account_email",attributes_request_method:"GET"}')" \
-    '{"email":"email","name":"nickname","picture":"picture"}'
-fi
-
 provider_json="$(printf '%s\n' "${providers[@]}" | jq -R . | jq -s .)"
 aws cognito-idp describe-user-pool-client \
   --user-pool-id "$DAJOONG_USER_POOL_ID" \

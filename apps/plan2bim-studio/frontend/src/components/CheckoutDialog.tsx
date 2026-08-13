@@ -205,7 +205,7 @@ export function CheckoutDialog({ context, requiredUnits, onClose, onPaid }: Chec
 
         <aside className="checkout-story">
           <div className="checkout-story-topline"><Sparkles size={14} /> DAJOONG LIGHTWEIGHT BIM</div>
-          <h2>Full model.<br /><em>One-fifth</em> the benchmark cost.</h2>
+          <h2>Full model.<br /><em>79% less</em> per month.</h2>
           <p>
             Your drawing becomes a coordinated, editable BIM in one fast conversion. The result keeps
             source links and matched building elements ready for review.
@@ -225,8 +225,8 @@ export function CheckoutDialog({ context, requiredUnits, onClose, onPaid }: Chec
           </div>
           <div className="checkout-comparison">
             <div><span>Dajoong single drawing</span><strong>{activeContext.unit_label}</strong><i style={{ width: "20%" }} /></div>
-            <div><span>Dajoong unlimited</span><strong>{activeContext.monthly_label}</strong><i style={{ width: "20%" }} /></div>
-            <div><span>T company minimum equivalent</span><strong>$20 / drawing · $400 / 20</strong><i style={{ width: "100%" }} /></div>
+            <div><span>Dajoong unlimited</span><strong>{activeContext.monthly_label}</strong><i style={{ width: "20.8%" }} /></div>
+            <div><span>Autodesk Revit monthly</span><strong>$380 / month</strong><i style={{ width: "100%" }} /></div>
           </div>
           <button className="checkout-basis" type="button" onClick={() => setDetailsOpen((value) => !value)}>
             <BadgeCheck size={14} /> Verified price + speed basis
@@ -234,10 +234,9 @@ export function CheckoutDialog({ context, requiredUnits, onClose, onPaid }: Chec
           </button>
           {detailsOpen ? (
             <p className="checkout-footnote">
-              Price: T-company publishes $0.26/ft² with a $20 minimum 3D order. Dajoong is $3.99 per drawing,
-              over 5× below that minimum. Monthly unlimited is $79; at 20 drawings, the T-company minimum-order
-              equivalent is $400, also over 5× higher. Scope and human review can differ. Pricing
-              checked August 2026. <a href={activeContext.comparison_source_url} target="_blank" rel="noreferrer">Price source</a>.
+              Price: Dajoong Unlimited is $79 monthly. Autodesk lists a standard Revit monthly subscription at $380,
+              making the Dajoong monthly price about 79% lower. Product scope, billing terms, taxes, and regional pricing differ.
+              Pricing checked August 13, 2026. <a href={activeContext.monthly_comparison_source_url} target="_blank" rel="noreferrer">Price source</a>.
               Speed: {activeContext.speed_runs} cold end-to-end runs, {activeContext.speed_median_seconds.toFixed(2)} s median
               and {activeContext.speed_p95_seconds.toFixed(2)} s observed slowest run. The ≥{formatMultiple(activeContext.speed_comparison_multiple)} figure
               conservatively compares that median with 16 working hours inside the published ~2-business-day turnaround;

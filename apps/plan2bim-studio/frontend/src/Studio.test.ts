@@ -84,7 +84,7 @@ describe("Studio edit transactions", () => {
         reason: "user edit",
         changes: {},
       }],
-    })).toBe(true);
+    })).toBe(false);
   });
 
   it("identifies every existing entity touched by a mutation command", () => {

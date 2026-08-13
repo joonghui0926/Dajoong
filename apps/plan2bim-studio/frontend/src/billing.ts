@@ -25,6 +25,7 @@ export interface CheckoutContext {
   comparison_source_url: string;
   monthly_comparison_multiple: number;
   monthly_comparison_basis: string;
+  monthly_comparison_source_url: string;
   speed_median_seconds: number;
   speed_p95_seconds: number;
   speed_runs: number;
@@ -55,8 +56,9 @@ const benchmarkDefaults = {
   monthly_label: "$79 / month",
   unlimited_active: false,
   unlimited_until: 0,
-  monthly_comparison_multiple: 5.06,
-  monthly_comparison_basis: "20 drawings at the T-company $20 order minimum",
+  monthly_comparison_multiple: 4.81,
+  monthly_comparison_basis: "Autodesk Revit standard monthly subscription ($380/month)",
+  monthly_comparison_source_url: "https://www.autodesk.com/solutions/revit-subscription-faq",
   speed_median_seconds: 2.720126,
   speed_p95_seconds: 12.972123,
   speed_runs: 7,

@@ -195,19 +195,13 @@ jobs:
       - name: Apply the production API, queue, storage, and CPU workers
         run: terraform -chdir=apps/plan2bim-studio/infra/terraform apply -auto-approve
 
-      - name: Configure email, Google, Apple, and Kakao sign-in
+      - name: Configure email and Google sign-in
         shell: bash
         env:
           DAJOONG_USER_POOL_ID: ${{ env.DAJOONG_USER_POOL_ID }}
           DAJOONG_USER_POOL_CLIENT_ID: ${{ env.DAJOONG_USER_POOL_CLIENT_ID }}
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
-          APPLE_SERVICE_ID: ${{ secrets.APPLE_SERVICE_ID }}
-          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-          APPLE_SIGN_IN_KEY_ID: ${{ secrets.APPLE_SIGN_IN_KEY_ID }}
-          APPLE_SIGN_IN_PRIVATE_KEY: ${{ secrets.APPLE_SIGN_IN_PRIVATE_KEY }}
-          KAKAO_OIDC_CLIENT_ID: ${{ secrets.KAKAO_OIDC_CLIENT_ID }}
-          KAKAO_OIDC_CLIENT_SECRET: ${{ secrets.KAKAO_OIDC_CLIENT_SECRET }}
         run: |
           set -euo pipefail
           DAJOONG_USER_POOL_ID=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw user_pool_id)
@@ -226,8 +220,6 @@ jobs:
             --user-pool-id "$user_pool_id" --client-id "$client_id" \
             --query 'UserPoolClient.SupportedIdentityProviders' --output text)
           [[ " $providers " == *" Google "* ]] && google=true || google=false
-          [[ " $providers " == *" SignInWithApple "* ]] && apple=true || apple=false
-          [[ " $providers " == *" Kakao "* ]] && kakao=true || kakao=false
           npm ci --prefix apps/plan2bim-studio/frontend
           APPLE_TEAM_ID="${{ vars.APPLE_TEAM_ID }}" \
           ANDROID_APP_LINK_SHA256="${{ vars.ANDROID_APP_LINK_SHA256 }}" \
@@ -237,8 +229,6 @@ jobs:
           VITE_COGNITO_CLIENT_ID="$client_id" \
           VITE_COGNITO_REDIRECT_URI=https://studio.dajoongbim.com/studio \
           VITE_AUTH_GOOGLE_ENABLED="$google" \
-          VITE_AUTH_APPLE_ENABLED="$apple" \
-          VITE_AUTH_KAKAO_ENABLED="$kakao" \
             npm run build --prefix apps/plan2bim-studio/frontend
 
       - name: Publish the protected Studio API on the .com domain

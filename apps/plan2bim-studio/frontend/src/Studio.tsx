@@ -31,9 +31,9 @@ import {
 } from "lucide-react";
 import { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
-import { AsyncFeatureLoading, RecoverableBoundary, reliableLazy } from "./components/AsyncFeatureBoundary";
+import { AsyncFeatureBoundary, AsyncFeatureLoading, RecoverableBoundary, reliableLazy } from "./components/AsyncFeatureBoundary";
 import { ModelTree } from "./components/ModelTree";
-import { ModelViewport, type ModelTransformCommit } from "./components/ModelViewport";
+import type { ModelTransformCommit } from "./components/ModelViewport";
 import { PlanViewport } from "./components/PlanViewport";
 import { PropertyPanel } from "./components/PropertyPanel";
 import { DajoongLogo } from "./components/DajoongLogo";
@@ -166,9 +166,9 @@ export function shouldRecoverStudioSession(payload: PersistedStudioSession) {
   if (!payload.graph || !Array.isArray(payload.graph.walls) || !Array.isArray(payload.graph.rooms)) {
     return false;
   }
-  if (isBundledStudioSampleGraph(payload.graph) && (payload.operations?.length ?? 0) === 0) {
-    return false;
-  }
+  // The public CUBI workspace is a landing-page demonstration, never a user's
+  // default project. Do not let an old edited demo reappear in a real account.
+  if (isBundledStudioSampleGraph(payload.graph)) return false;
   if (payload.schema_version === STUDIO_SESSION_SCHEMA_VERSION) return true;
   // Preserve genuine unsynced work from older builds.  An untouched demo
   // session is refreshed so converter-owned geometry and schema upgrades land.
@@ -176,6 +176,7 @@ export function shouldRecoverStudioSession(payload: PersistedStudioSession) {
 }
 
 const CommandPalette = reliableLazy(async () => ({ default: (await import("./components/CommandPalette")).CommandPalette }));
+const ModelViewport = reliableLazy(async () => ({ default: (await import("./components/ModelViewport")).ModelViewport }));
 const ConversionDialog = reliableLazy(async () => ({ default: (await import("./components/ConversionDialog")).ConversionDialog }));
 const CheckoutDialog = reliableLazy(async () => ({ default: (await import("./components/CheckoutDialog")).CheckoutDialog }));
 const ExactMoveDialog = reliableLazy(async () => ({ default: (await import("./components/ExactMoveDialog")).ExactMoveDialog }));
@@ -195,6 +196,16 @@ function loadRecentCommandIds(): string[] {
 
 function StudioToolFallback() {
   return <AsyncFeatureLoading label="Opening workspace tool" />;
+}
+
+function ModelViewportLoading() {
+  return (
+    <div className="viewport model-viewport-loading" role="status" aria-live="polite">
+      <div className="viewport-label">3D MODEL</div>
+      <span />
+      <p>Preparing model view</p>
+    </div>
+  );
 }
 
 export interface Snapshot {
@@ -558,8 +569,8 @@ export function Studio() {
   const [levelId, setLevelId] = useState("L1");
   const [viewMode, setViewMode] = useState<ViewMode>("split");
   const [reviewOnly, setReviewOnly] = useState(false);
-  const [sourceUrl, setSourceUrl] = useState<string>("/sample/source.webp");
-  const [notice, setNotice] = useState("Loading reviewed sample…");
+  const [sourceUrl, setSourceUrl] = useState<string>("");
+  const [notice, setNotice] = useState("Start with a drawing or open an account project.");
   const [conversionOpen, setConversionOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [collaborationOpen, setCollaborationOpen] = useState(
@@ -612,6 +623,21 @@ export function Studio() {
     void loadCheckoutContext()
       .then(setCheckoutContext)
       .catch((caught) => setNotice(caught instanceof Error ? caught.message : "Could not open checkout."));
+  }, []);
+  const openConversion = useCallback(() => {
+    void loadCheckoutContext()
+      .then((context) => {
+        const needsPayment = context.billing_enforced
+          && context.free_units_remaining < 1
+          && context.paid_units < 1
+          && !context.unlimited_active;
+        if (needsPayment) {
+          setCheckoutContext(context);
+          return;
+        }
+        setConversionOpen(true);
+      })
+      .catch(() => setConversionOpen(true));
   }, []);
   useEffect(() => {
     const checkout = new URLSearchParams(window.location.search).get("checkout");
@@ -791,18 +817,21 @@ export function Studio() {
         localStorage.removeItem(STUDIO_SESSION_KEY);
       }
     }
-    loadVerifiedStudioSample(controller.signal)
-      .then((sample) => {
-        dispatch({ type: "load", graph: sample.graph });
-        setLevelId(sample.graph.levels[0]?.id ?? "L1");
-        setSourceUrl(sample.sourceUrl);
-        setNotice(`Verified sample loaded · ${sample.sampleId}`);
-      })
-      .catch((error: Error) => {
-        if (error.name !== "AbortError") {
-          setNotice(`Import a PlanGraph to begin · ${error.message}`);
-        }
-      });
+    if (embeddedLandingDemo) {
+      loadVerifiedStudioSample(controller.signal)
+        .then((sample) => {
+          dispatch({ type: "load", graph: sample.graph });
+          setLevelId(sample.graph.levels[0]?.id ?? "L1");
+          setSourceUrl(sample.sourceUrl);
+          setNotice(`Verified sample loaded · ${sample.sampleId}`);
+        })
+        .catch((error: Error) => {
+          if (error.name !== "AbortError") setNotice(`Could not load the landing demo · ${error.message}`);
+        });
+    } else {
+      localStorage.removeItem(STUDIO_SESSION_KEY);
+      setNotice("Start with a drawing or open an account project.");
+    }
     return () => controller.abort();
   }, [embeddedLandingDemo, requestedJobId]);
 
@@ -2579,7 +2608,7 @@ export function Studio() {
       label: "Convert a drawing",
       group: "Import",
       aliases: ["upload PDF", "image to BIM", "plan to model"],
-      run: () => setConversionOpen(true),
+      run: openConversion,
     },
     {
       id: "add-wall",
@@ -2905,7 +2934,69 @@ export function Studio() {
   };
 
   if (!graph) {
-    return <main className="studio-loading"><DajoongLogo /><h1>Dajoong Studio</h1><p>{notice}</p></main>;
+    return (
+      <main className="studio-empty-shell">
+        <header className="app-header">
+          <a className="brand-lockup" href="/"><DajoongLogo compact /><div><strong>DAJOONG</strong><small>Studio</small></div></a>
+          <div className="project-crumb"><strong>New workspace</strong></div>
+          <div className="header-actions">
+            <button className="header-button mobile-primary" onClick={openConversion}><UploadCloud size={15} /> Convert</button>
+            <button className="header-button primary" onClick={openCheckout}><WalletCards size={15} /> Plans & billing</button>
+            {authConfigured ? <button className="header-button icon-only" onClick={() => setAccountOpen(true)} title="Account and privacy"><UserRound size={15} /></button> : null}
+            {authConfigured ? <button className="header-button icon-only" onClick={() => void signOut()} title="Sign out"><LogOut size={15} /></button> : null}
+          </div>
+        </header>
+        <section className="studio-empty-workspace">
+          <div className="studio-empty-copy">
+            <span className="eyebrow">NEW WORKSPACE</span>
+            <h1>Bring the drawing.<br />Build from there.</h1>
+            <p>No demo project is loaded into your account. Upload a plan to use your free first conversion, or open a saved project from the conversion window.</p>
+            <div>
+              <button className="primary-button" onClick={openConversion}><UploadCloud size={17} /> Convert a drawing</button>
+              <button className="secondary-button" onClick={openCheckout}><WalletCards size={17} /> View plans</button>
+            </div>
+          </div>
+          <div className="studio-empty-stage" aria-hidden="true">
+            <span>2D DRAWING</span><i /><span>EDITABLE BIM</span>
+          </div>
+          <p className="studio-empty-notice">{notice}</p>
+        </section>
+        <RecoverableBoundary label="Workspace tool">
+          {conversionOpen ? (
+            <Suspense fallback={<StudioToolFallback />}>
+              <ConversionDialog
+                open
+                onClose={() => setConversionOpen(false)}
+                onStatus={setNotice}
+                onComplete={(convertedGraph, convertedSourceUrl, convertedJobId, cloudRevision) => {
+                  cloudRevisionRef.current = { jobId: convertedJobId, version: cloudRevision.version, graphSha256: cloudRevision.graphSha256, conflicted: false };
+                  setCloudSaveState("saved");
+                  dispatch({ type: "load", graph: convertedGraph });
+                  setLevelId(convertedGraph.levels[0]?.id ?? "L1");
+                  setJobId(convertedJobId);
+                  if (convertedSourceUrl) setSourceUrl(convertedSourceUrl);
+                }}
+              />
+            </Suspense>
+          ) : null}
+        </RecoverableBoundary>
+        {accountOpen ? <AccountDialog onClose={() => setAccountOpen(false)} /> : null}
+        {checkoutContext ? (
+          <Suspense fallback={<StudioToolFallback />}>
+            <CheckoutDialog
+              context={checkoutContext}
+              requiredUnits={1}
+              onClose={() => setCheckoutContext(null)}
+              onPaid={() => {
+                setCheckoutContext(null);
+                setNotice("Payment confirmed. Your conversion is ready.");
+                setConversionOpen(true);
+              }}
+            />
+          </Suspense>
+        ) : null}
+      </main>
+    );
   }
 
   return (
@@ -2937,8 +3028,8 @@ export function Studio() {
             </div>
           ) : null}
           {!embeddedLandingDemo ? <button className="header-button team-header-button" onClick={() => setCollaborationOpen(true)}><UsersRound size={15} /> Team{workspacePresence.length ? <span className="team-count">{workspacePresence.length}</span> : null}</button> : null}
-          <button className="header-button mobile-primary" onClick={() => setConversionOpen(true)}><UploadCloud size={15} /> Convert</button>
-          <button className="header-button" onClick={openCheckout}><WalletCards size={15} /> Credits</button>
+          <button className="header-button mobile-primary" onClick={openConversion}><UploadCloud size={15} /> Convert</button>
+          <button className="header-button" onClick={openCheckout}><WalletCards size={15} /> Plans & billing</button>
           <button className="header-button" onClick={() => fileInput.current?.click()}><FileInput size={15} /> Open files</button>
           {jobId ? <button className="header-button" onClick={() => void downloadJobArtifact(jobId, "ifc")}><Download size={15} /> IFC</button> : null}
           {jobId ? <button className="header-button" onClick={() => void downloadJobArtifact(jobId, "glb")}><Download size={15} /> GLB</button> : null}
@@ -2961,7 +3052,7 @@ export function Studio() {
             <button className="mobile-header-scrim" type="button" aria-label="Close project actions" onClick={() => setMobileMenuOpen(false)} />
             <div className="mobile-header-menu" role="menu" aria-label="Project actions">
               {!embeddedLandingDemo ? <button role="menuitem" onClick={() => { setMobileMenuOpen(false); setCollaborationOpen(true); }}><UsersRound size={17} />Team workspace</button> : null}
-              <button role="menuitem" onClick={() => { setMobileMenuOpen(false); openCheckout(); }}><WalletCards size={17} />Credits</button>
+              <button role="menuitem" onClick={() => { setMobileMenuOpen(false); openCheckout(); }}><WalletCards size={17} />Plans & billing</button>
               <button role="menuitem" onClick={() => { setMobileMenuOpen(false); fileInput.current?.click(); }}><FileInput size={17} />Open files</button>
               <button role="menuitem" onClick={() => { setMobileMenuOpen(false); setQualityOpen(true); }}><Check size={17} />Model assurance</button>
               {jobId ? <button role="menuitem" onClick={() => { setMobileMenuOpen(false); void downloadJobArtifact(jobId, "ifc"); }}><Download size={17} />Download IFC</button> : null}
@@ -3135,23 +3226,25 @@ export function Studio() {
             />
           ) : null}
           {viewMode !== "plan" ? (
-            <ModelViewport
-              graph={graph}
-              levelId={levelId}
-              selections={selections}
-              hiddenCollections={hiddenCollections}
-              lockedCollections={lockedCollections}
-              hiddenEntities={hiddenEntities}
-              lockedEntities={lockedEntities}
-              isolatedEntities={isolatedEntities}
-              selectionExclusions={selectionExclusions}
-              snapIncrementM={snapIncrementM}
-              onTransformCommit={commitModelTransform}
-              onIsolateSelection={isolateSelection}
-              onExitIsolation={exitIsolation}
-              onSelect={onSelect}
-              onOpenContextMenu={openContextMenu}
-            />
+            <AsyncFeatureBoundary label="Preparing the 3D model" variant="inline" fallback={<ModelViewportLoading />}>
+              <ModelViewport
+                graph={graph}
+                levelId={levelId}
+                selections={selections}
+                hiddenCollections={hiddenCollections}
+                lockedCollections={lockedCollections}
+                hiddenEntities={hiddenEntities}
+                lockedEntities={lockedEntities}
+                isolatedEntities={isolatedEntities}
+                selectionExclusions={selectionExclusions}
+                snapIncrementM={snapIncrementM}
+                onTransformCommit={commitModelTransform}
+                onIsolateSelection={isolateSelection}
+                onExitIsolation={exitIsolation}
+                onSelect={onSelect}
+                onOpenContextMenu={openContextMenu}
+              />
+            </AsyncFeatureBoundary>
           ) : null}
           <SelectionActionBar
             count={selections.length}

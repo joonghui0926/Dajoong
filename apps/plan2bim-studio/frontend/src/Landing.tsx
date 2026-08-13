@@ -211,7 +211,7 @@ export function Landing() {
           <div className="speed-v3-reading"><strong>{displaySeconds.toFixed(2)}</strong><span>seconds</span></div>
           <h2><span>Fast enough,</span><span>decisions stay live.</span></h2>
           <p>Dajoong’s research team developed a whole-sheet spatial compiler that preserves drawing context while resolving editable building elements in one measured run.</p>
-          <small>Median of 7 cold full-pipeline runs on the bundled benchmark drawing. Measured August 9, 2026.</small>
+          <small>Median of 7 cold full-pipeline runs on the bundled benchmark drawing.</small>
         </div>
         <figure className="conversion-compare" style={comparisonStyle} data-reveal>
           <div className="compare-label compare-label-source">SOURCE DRAWING</div>
@@ -228,13 +228,13 @@ export function Landing() {
         <header data-reveal>
           <p className="landing-kicker">DAJOONG STUDIO</p>
           <h2><span>Not a dead export,</span><span>a working building.</span></h2>
-          <p>Use the real CUBI-020 workspace below. Organize, edit, and review with the same tools available in Dajoong Studio.</p>
+          <p>Organize, edit, and review with the same tools available in Dajoong Studio.</p>
         </header>
         <div className="studio-embed-v3" data-reveal>
           <div className="studio-embed-meta"><span><i /> LIVE CUBI-020 WORKSPACE</span><b>Actual Studio tools · collaboration shown below</b></div>
           <iframe
             title="Interactive CUBI-020 Dajoong Studio workspace"
-            src="/studio?embed=landing&demo=cubi-020"
+            src="https://studio.dajoongbim.com/studio?embed=landing&demo=cubi-020"
             loading="lazy"
             onLoad={handleEmbeddedStudioLoad}
           />
@@ -286,20 +286,23 @@ export function Landing() {
 
       <section className="landing-pricing-v3" id="pricing">
         <div className="pricing-v3-copy" data-reveal>
-          <p className="landing-kicker">PAY FOR THE DRAWING, NOT THE WAIT</p>
+          <p className="landing-kicker">ONE SUBSCRIPTION. UNLIMITED DRAWINGS.</p>
           <h2>Professional BIM without the traditional price.</h2>
           <p className="pricing-lede-v3">
-            <span>Your first drawing is free. After that, Dajoong starts at <strong>$0.052/ft²</strong>.</span>
-            <span><b>Comparison:</b> one fifth of the $0.26/ft² starting price.</span>
+            <span>Your first drawing is free. Then Dajoong Unlimited is <strong>$79/month</strong>.</span>
+            <span><b>Comparison:</b> about one fifth of a standard Autodesk Revit monthly subscription.</span>
           </p>
           <button onMouseEnter={preloadConversion} onFocus={preloadConversion} onClick={() => setDialogOpen(true)}>Convert the first drawing <ArrowRight size={17} /></button>
         </div>
-        <div className="price-chart-v3" data-reveal aria-label="Relative starting-price comparison">
-          <div className="price-scale"><span>RELATIVE PRICE INDEX</span><b>100</b></div>
-          <div className="price-row competitor"><label><span>Reference service</span><small>$0.26 / ft²</small></label><i /><b>100</b></div>
-          <div className="price-row dajoong"><label><span>Dajoong</span><small>$0.052 / ft²</small></label><i /><b>20</b></div>
-          <p>80% lower starting price <span>·</span> First drawing free</p>
-          <small>Public starting-price comparison supplied for like-for-like 3D output; scope and final quotes can vary.</small>
+        <div className="price-chart-v3" data-reveal aria-label="Monthly subscription price comparison">
+          <div className="price-scale"><span>MONTHLY SUBSCRIPTION · USD</span><b>PER USER</b></div>
+          <div className="price-row competitor"><label><span>Autodesk Revit</span><small>Standard monthly subscription</small></label><i /><b>$380</b></div>
+          <div className="price-row dajoong"><label><span>Dajoong Unlimited</span><small>Unlimited drawing conversions</small></label><i /><b>$79</b></div>
+          <p>79% lower monthly price <span>·</span> First drawing free</p>
+          <small>
+            Monthly list prices checked August 13, 2026. Product scope, billing terms, taxes, and regional pricing differ.{" "}
+            <a href="https://www.autodesk.com/solutions/revit-subscription-faq" target="_blank" rel="noreferrer">Autodesk price source</a>
+          </small>
         </div>
       </section>
 
