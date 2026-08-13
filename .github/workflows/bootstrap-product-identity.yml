@@ -1,0 +1,113 @@
+name: bootstrap-product-identity
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: dajoong-product-identity
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AWS_REGION: ${{ vars.STUDIO_AWS_REGION || 'us-west-2' }}
+      TF_STATE_REGION: ${{ vars.TF_STATE_REGION || 'us-west-1' }}
+      TF_STATE_KEY: dajoong/plan2bim-studio/production.tfstate
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      TF_IN_AUTOMATION: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/plan2bim-studio/frontend/package-lock.json
+
+      - name: Initialize the shared production state
+        shell: bash
+        run: |
+          set -euo pipefail
+          account_id=$(aws sts get-caller-identity --query Account --output text)
+          state_bucket="dajoong-terraform-state-${account_id}-${TF_STATE_REGION}"
+          terraform -chdir=apps/plan2bim-studio/infra/terraform init \
+            -backend-config="bucket=${state_bucket}" \
+            -backend-config="key=${TF_STATE_KEY}" \
+            -backend-config="region=${TF_STATE_REGION}" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+          terraform -chdir=apps/plan2bim-studio/infra/terraform validate
+
+      - name: Create email identity without publishing the converter
+        run: |
+          terraform -chdir=apps/plan2bim-studio/infra/terraform apply -auto-approve \
+            -target=aws_cognito_user_pool.users \
+            -target=aws_cognito_user_pool_client.web \
+            -target=aws_cognito_user_pool_domain.web
+
+      - name: Configure enabled social providers
+        shell: bash
+        env:
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          KAKAO_OIDC_CLIENT_ID: ${{ secrets.KAKAO_OIDC_CLIENT_ID }}
+          KAKAO_OIDC_CLIENT_SECRET: ${{ secrets.KAKAO_OIDC_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          export DAJOONG_USER_POOL_ID
+          export DAJOONG_USER_POOL_CLIENT_ID
+          DAJOONG_USER_POOL_ID=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw user_pool_id)
+          DAJOONG_USER_POOL_CLIENT_ID=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw user_pool_client_id)
+          bash apps/plan2bim-studio/infra/scripts/configure_cognito_idps.sh
+
+      - name: Build the authenticated web and mobile client
+        shell: bash
+        run: |
+          set -euo pipefail
+          authority=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw cognito_authority)
+          client_id=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw user_pool_client_id)
+          user_pool_id=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw user_pool_id)
+          providers=$(aws cognito-idp describe-user-pool-client \
+            --user-pool-id "$user_pool_id" --client-id "$client_id" \
+            --query 'UserPoolClient.SupportedIdentityProviders' --output text)
+          [[ " $providers " == *" Google "* ]] && google=true || google=false
+          [[ " $providers " == *" Kakao "* ]] && kakao=true || kakao=false
+          npm ci --prefix apps/plan2bim-studio/frontend
+          ANDROID_APP_LINK_SHA256="${{ vars.ANDROID_APP_LINK_SHA256 }}" \
+            npm run links:prepare --prefix apps/plan2bim-studio/frontend
+          VITE_STUDIO_API_URL=https://studio-api.dajoongbim.com \
+          VITE_COGNITO_AUTHORITY="$authority" \
+          VITE_COGNITO_CLIENT_ID="$client_id" \
+          VITE_COGNITO_REDIRECT_URI=https://studio.dajoongbim.com/studio \
+          VITE_AUTH_GOOGLE_ENABLED="$google" \
+          VITE_AUTH_APPLE_ENABLED=false \
+          VITE_AUTH_KAKAO_ENABLED="$kakao" \
+            npm run build --prefix apps/plan2bim-studio/frontend
+
+      - name: Publish the authenticated client
+        run: >-
+          npx --yes wrangler@4.110.0 deploy
+          --config apps/plan2bim-studio/infra/cloudflare/wrangler.web.jsonc
+
+      - name: Summarize identity endpoints
+        shell: bash
+        run: |
+          hosted_ui=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw cognito_hosted_ui)
+          {
+            echo "### Dajoong product identity is ready"
+            echo "OAuth provider callback: ${hosted_ui}/oauth2/idpresponse"
+            echo "Website: https://dajoongbim.com"
+            echo "Studio: https://studio.dajoongbim.com/studio"
+          } >> "$GITHUB_STEP_SUMMARY"
