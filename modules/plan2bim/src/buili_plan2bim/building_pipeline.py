@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -27,11 +27,15 @@ class BuildingLevelInput(BaseModel):
     source_path: str = Field(min_length=1, max_length=4096)
     page_number: int = Field(default=1, ge=1)
     sheet_id: str = Field(default="", max_length=160)
+    plan_instance_id: str = Field(default="", max_length=220)
     level_id: str = Field(min_length=1, max_length=160)
     name: str = Field(min_length=1, max_length=300)
     elevation_m: float
     nominal_height_m: float = Field(default=3.0, gt=0)
     pixels_per_meter: float = Field(gt=0)
+    scale_source: Literal["user_supplied", "drawing_dimension", "vector_units"] = (
+        "user_supplied"
+    )
     wall_thickness_m: float = Field(default=0.12, gt=0)
     x_offset_m: float = 0.0
     y_offset_m: float = 0.0
@@ -61,6 +65,7 @@ class BuildingConversionConfig(BaseModel):
     threads: int = Field(default=1, ge=1, le=64)
     batch_size: int = Field(default=8, ge=1, le=256)
     allow_draft_ifc: bool = True
+    allow_primary_only_smoke: bool = False
 
     @model_validator(mode="after")
     def validate_building(self) -> BuildingConversionConfig:
@@ -153,7 +158,12 @@ class BuildingPlan2BimConverter:
         threads: int = 1,
         batch_size: int = 8,
         semantic_model_path: str | Path | None = None,
-        semantic_max_side: int = 1024,
+        semantic_max_side: int | None = None,
+        global_program_model_path: str | Path | None = None,
+        local_element_model_path: str | Path | None = None,
+        discover_native_candidates: bool | None = None,
+        allow_research_global_program: bool = False,
+        allow_legacy_semantic_teacher: bool = False,
     ) -> None:
         self.level_converter = Plan2BimConverter(
             model_path=model_path,
@@ -161,6 +171,11 @@ class BuildingPlan2BimConverter:
             batch_size=batch_size,
             semantic_model_path=semantic_model_path,
             semantic_max_side=semantic_max_side,
+            global_program_model_path=global_program_model_path,
+            local_element_model_path=local_element_model_path,
+            discover_native_candidates=discover_native_candidates,
+            allow_research_global_program=allow_research_global_program,
+            allow_legacy_semantic_teacher=allow_legacy_semantic_teacher,
         )
 
     def convert(
@@ -182,9 +197,11 @@ class BuildingPlan2BimConverter:
                 ConversionConfig(
                     project_id=config.project_id,
                     sheet_id=level.sheet_id or f"{level.level_id}-page-{level.page_number}",
+                    plan_instance_id=level.plan_instance_id,
                     level_id=level.level_id,
                     level_name=level.name,
                     pixels_per_meter=level.pixels_per_meter,
+                    scale_source=level.scale_source,
                     elevation_m=level.elevation_m,
                     nominal_height_m=level.nominal_height_m,
                     wall_thickness_m=level.wall_thickness_m,
@@ -193,6 +210,7 @@ class BuildingPlan2BimConverter:
                     page_number=level.page_number,
                     pdf_dpi=config.pdf_dpi,
                     allow_draft_ifc=config.allow_draft_ifc,
+                    allow_primary_only_smoke=config.allow_primary_only_smoke,
                 ),
             )
             level_results[level.level_id] = level_result

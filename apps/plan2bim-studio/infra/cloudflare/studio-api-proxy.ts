@@ -3,7 +3,13 @@ interface Env {
   STUDIO_ORIGIN_VERIFY_SECRET: string;
 }
 
-const API_HOST = 'studio-api.builiconstruction.com';
+const API_HOST = 'studio-api.dajoongbim.com';
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+
+function isPublicAssetRequest(request: Request, url: URL) {
+  return request.method === 'GET'
+    && url.pathname.startsWith('/api/assets/v1/');
+}
 
 function validatedOrigin(value: string) {
   const origin = new URL(value);
@@ -18,6 +24,12 @@ export default {
     const incoming = new URL(request.url);
     if (incoming.hostname !== API_HOST) return new Response('Not Found', { status: 404 });
 
+    const publicAsset = isPublicAssetRequest(request, incoming);
+    if (publicAsset) {
+      const cached = await caches.default.match(request);
+      if (cached) return cached;
+    }
+
     let origin: URL;
     try {
       origin = validatedOrigin(env.STUDIO_API_ORIGIN);
@@ -30,7 +42,20 @@ export default {
 
     const target = new URL(`${incoming.pathname}${incoming.search}`, origin);
     const headers = new Headers(request.headers);
+    const suppliedRequestId = headers.get('X-Request-ID') || '';
+    const requestId = /^[A-Za-z0-9]{8,64}$/.test(suppliedRequestId)
+      ? suppliedRequestId
+      : crypto.randomUUID().replaceAll('-', '');
+    const contentLength = Number(headers.get('Content-Length') || '0');
+    if (Number.isFinite(contentLength) && contentLength > MAX_UPLOAD_BYTES) {
+      return Response.json(
+        { detail: 'drawing exceeds the 100 MB upload limit', request_id: requestId },
+        { status: 413, headers: { 'Cache-Control': 'no-store', 'X-Request-ID': requestId } },
+      );
+    }
     headers.set('X-Dajoong-Origin-Verify', env.STUDIO_ORIGIN_VERIFY_SECRET);
+    headers.set('X-Dajoong-Country', request.cf?.country || 'US');
+    headers.set('X-Request-ID', requestId);
     headers.set('X-Forwarded-Host', incoming.host);
     headers.delete('Host');
 
@@ -40,16 +65,29 @@ export default {
       body: request.method === 'GET' || request.method === 'HEAD' ? undefined : request.body,
       redirect: 'manual',
     });
-    const upstream = await fetch(upstreamRequest);
+    let upstream: Response;
+    try {
+      upstream = await fetch(upstreamRequest);
+    } catch {
+      return Response.json(
+        { detail: 'The Dajoong service is temporarily unavailable.', request_id: requestId },
+        { status: 502, headers: { 'Cache-Control': 'no-store', 'X-Request-ID': requestId } },
+      );
+    }
     const responseHeaders = new Headers(upstream.headers);
     responseHeaders.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
     responseHeaders.set('X-Content-Type-Options', 'nosniff');
     responseHeaders.set('Referrer-Policy', 'no-referrer');
-    responseHeaders.set('Cache-Control', 'no-store');
-    return new Response(upstream.body, {
+    if (!publicAsset) responseHeaders.set('Cache-Control', 'no-store');
+    responseHeaders.set('X-Request-ID', upstream.headers.get('X-Request-ID') || requestId);
+    const response = new Response(upstream.body, {
       status: upstream.status,
       statusText: upstream.statusText,
       headers: responseHeaders,
     });
+    if (publicAsset && upstream.ok && request.method === 'GET') {
+      await caches.default.put(request, response.clone());
+    }
+    return response;
   },
 } satisfies ExportedHandler<Env>;

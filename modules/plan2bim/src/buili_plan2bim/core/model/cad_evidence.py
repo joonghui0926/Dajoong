@@ -16,6 +16,10 @@ from PIL import Image, ImageDraw
 
 LEGACY_EVIDENCE_CONTRACT = "legacy_raster_valid_v1"
 GLOBAL_ORIENTED_EVIDENCE_CONTRACT = "cad_global_oriented_v1"
+GLOBAL_PROGRAM_INPUT_CONTRACT = "cad_global_oriented_letterbox_v2"
+ORIENTED_EVIDENCE_ROTATION_CONTRACT = (
+    "c4_spatial_rotate_swap_axis_channels_on_odd_quadrants_v1"
+)
 EVIDENCE_CONTRACTS = {
     LEGACY_EVIDENCE_CONTRACT,
     GLOBAL_ORIENTED_EVIDENCE_CONTRACT,
@@ -95,6 +99,72 @@ def build_cad_evidence(
     horizontal, vertical = oriented_line_evidence(ink)
     enclosure = global_enclosure_evidence(ink, horizontal, vertical)
     return np.stack((ink, horizontal, vertical, enclosure)).astype(np.float32)
+
+
+def letterbox_content_bbox(
+    source_size: tuple[int, int],
+    target_size: int,
+) -> tuple[int, int, int, int]:
+    """Return the centered, aspect-preserving content box in a square tensor."""
+
+    source_width, source_height = source_size
+    if source_width < 1 or source_height < 1 or target_size < 1:
+        raise ValueError("source dimensions and target_size must be positive")
+    scale = min(target_size / source_width, target_size / source_height)
+    width = max(1, min(target_size, round(source_width * scale)))
+    height = max(1, min(target_size, round(source_height * scale)))
+    left = (target_size - width) // 2
+    top = (target_size - height) // 2
+    return left, top, left + width, top + height
+
+
+def pad_letterbox_content(
+    content: np.ndarray,
+    target_size: int,
+    content_bbox: tuple[int, int, int, int],
+) -> np.ndarray:
+    """Place an already resized array into the shared square letterbox frame."""
+
+    value = np.asarray(content)
+    if value.ndim < 2:
+        raise ValueError("letterbox content requires spatial axes")
+    left, top, right, bottom = content_bbox
+    if value.shape[-2:] != (bottom - top, right - left):
+        raise ValueError("content shape does not match its letterbox bbox")
+    if not (0 <= left < right <= target_size and 0 <= top < bottom <= target_size):
+        raise ValueError("content bbox falls outside target tensor")
+    output = np.zeros((*value.shape[:-2], target_size, target_size), dtype=value.dtype)
+    output[..., top:bottom, left:right] = value
+    return output
+
+
+def letterbox_cad_evidence(
+    evidence: np.ndarray,
+    target_size: int,
+) -> tuple[np.ndarray, tuple[int, int, int, int]]:
+    """Resize `[channels, height, width]` without changing plan proportions."""
+
+    source = np.asarray(evidence, dtype=np.float32)
+    if source.ndim != 3:
+        raise ValueError("evidence must have shape [channels, height, width]")
+    content_bbox = letterbox_content_bbox(
+        (int(source.shape[2]), int(source.shape[1])),
+        target_size,
+    )
+    left, top, right, bottom = content_bbox
+    channels = []
+    for channel in source:
+        image = Image.fromarray(channel, mode="F")
+        resized = image.resize(
+            (right - left, bottom - top),
+            resample=Image.Resampling.BILINEAR,
+        )
+        channels.append(np.asarray(resized, dtype=np.float32))
+    content = np.stack(channels)
+    return (
+        pad_letterbox_content(content, target_size, content_bbox)[None],
+        content_bbox,
+    )
 
 
 def augment_drafting_ink(ink: np.ndarray, rng: random.Random) -> np.ndarray:

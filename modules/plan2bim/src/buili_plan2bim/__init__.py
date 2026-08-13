@@ -32,6 +32,7 @@ from .semantic_recognition import (
     SemanticDetection,
     SemanticRecognitionResult,
 )
+from .runtime_registry import require_product_architectural_runtime
 
 __all__ = [
     "ConversionConfig",
@@ -57,6 +58,7 @@ __all__ = [
     "ModelQualification",
     "ModelQualifier",
     "profile_drawing",
+    "require_product_architectural_runtime",
 ]
 
 __version__ = "0.1.0"

@@ -6,10 +6,11 @@ the common project list stays fast while drawings and models remain private.
 ## Request boundary
 
 - Cloudflare accepts the public request and adds the origin-verification secret.
-- Cognito verifies the authorization-code session. The API derives ownership only
-  from the signed `sub` and administrator-issued `custom:organization_id` claims.
-- A client-supplied account or organization identifier is never accepted as an
-  authorization decision.
+- Cognito verifies the authorization-code session. The API derives the user only
+  from the signed `sub` and verified identity claims.
+- The client may request an active workspace with `X-Dajoong-Organization`, but
+  the API resolves that ID against the server-side membership table on every
+  protected request. It is a selector, never an authorization decision.
 - Unauthorized and cross-account object lookups both return `404`, which avoids
   confirming whether another account's job identifier exists.
 
@@ -55,7 +56,8 @@ retry cannot enqueue and bill the same conversion twice.
 Personal account deletion enumerates the authenticated owner's sparse index,
 removes every S3 object version and delete marker, deletes personal job metadata,
 then deletes the Cognito identity. Organization-owned records follow the customer
-retention policy, but the deleted user's `owner_id` is removed immediately.
+retention policy. Non-owner memberships are removed before identity deletion;
+workspace owners must transfer ownership first so company data is never orphaned.
 
 If deletion races an in-flight conversion, the worker's conditional save fails.
 It rechecks ownership and either preserves an anonymized organization result or
@@ -66,6 +68,20 @@ remain defense-in-depth cleanup, not the primary deletion mechanism.
 
 DynamoDB uses on-demand billing, S3 holds large values, SQS buffers conversion,
 and Fargate workers can return to zero. No always-on database or Redis cluster is
-required for project listing, polling, or low-contention corrections. A dedicated
-collaboration service should be introduced only when live multi-user cursors or
-high-frequency shared editing justify it.
+required for project listing, polling, invitations, comments, versions, or
+presence.
+
+The collaboration table is a composite-key, single-table design. User partitions
+resolve workspace memberships without scans; organization partitions contain
+members and hashed invitations; job partitions contain recent comments, activity,
+versions, and short-lived presence. Queries paginate within one partition and
+never scan the table. Presence expires through DynamoDB TTL, while durable model
+snapshots remain content-addressed in S3. Optimistic job versions reject stale
+autosaves and restores, and idempotency keys collapse network retries into one
+comment, activity event, conversion, or payment.
+
+Organization lookup batches up to 100 records per DynamoDB request, so a user
+who belongs to many client workspaces does not create a serial request chain at
+sign-in. Membership acceptance and ownership transfer use conditional
+transactions. A stale invitation cannot lower an existing role, and an
+administrator cannot demote a peer administrator to bypass the removal rule.

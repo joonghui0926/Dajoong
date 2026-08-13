@@ -2,7 +2,7 @@ aws_region       = "us-west-2"
 environment      = "production"
 api_image_tag    = "replace-with-immutable-sha"
 worker_image_tag = "replace-with-immutable-sha"
-cors_origins     = "https://studio.builiconstruction.com,https://app.builiconstruction.com,https://localhost,capacitor://localhost"
+cors_origins     = "https://studio.dajoongbim.com,https://app.dajoongbim.com,https://localhost,capacitor://localhost"
 artifact_retention_days = 90
 # Created automatically by the production workflow. Do not paste the secret value here.
 origin_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:dajoong/plan2bim/production/origin-verify-example"

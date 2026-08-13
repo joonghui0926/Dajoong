@@ -133,6 +133,7 @@ def assemble_building_graph(
         "walls": [],
         "openings": [],
         "fixtures": [],
+        "family_assets": {},
         "routes": [],
         "vertical_connections": [],
         "constraints": [],
@@ -148,6 +149,11 @@ def assemble_building_graph(
     source_ids: list[str] = []
     for spec in sorted(config.levels, key=lambda item: item.elevation_m):
         graph = copy.deepcopy(level_graphs[spec.level_id])
+        for reference, definition in (graph.get("family_assets") or {}).items():
+            existing = output["family_assets"].get(reference)
+            if existing is not None and existing != definition:
+                raise ValueError(f"conflicting shared family asset definition: {reference}")
+            output["family_assets"][reference] = definition
         graph_levels = list(graph.get("levels") or [])
         if len(graph_levels) != 1:
             raise ValueError(f"level graph {spec.level_id!r} must contain exactly one level")

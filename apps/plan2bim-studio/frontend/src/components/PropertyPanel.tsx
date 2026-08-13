@@ -1,4 +1,4 @@
-import { Check, ClipboardCheck, History, Layers3, Lock, MousePointer2, ShieldAlert, Trash2 } from "lucide-react";
+import { Check, ClipboardCheck, Gauge, History, Layers3, Lock, MousePointer2, ScanSearch, ShieldAlert, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { confidenceLabel } from "../graph";
@@ -82,6 +82,7 @@ export function PropertyPanel({
         {locked ? <div className="property-lock-note"><Lock size={13} /> Unlock this element or its category in the Model Browser to edit it.</div> : null}
         <PropertyFields collection={selection.collection} entity={entity} onEdit={onEdit} />
         {reviewPriority ? <ReviewRiskSection priority={reviewPriority} /> : null}
+        {selection.collection === "fixtures" ? <AssetMatchSection entity={entity} /> : null}
         {selection.collection === "fixtures" ? (
           <section className="property-section family-property-action">
             <h3>Component family</h3>
@@ -111,6 +112,78 @@ export function PropertyPanel({
       <div className="autosave-note"><History size={13} /> Patch history is saved locally</div>
     </aside>
   );
+}
+
+function AssetMatchSection({ entity }: { entity: BaseEntity }) {
+  const score = finiteNumber(entity.asset_selection_score);
+  if (score === null) return null;
+  const margin = finiteNumber(entity.asset_selection_margin);
+  const elapsedUs = finiteNumber(entity.asset_selection_elapsed_us);
+  const context = isRecord(entity.asset_selection_context) ? entity.asset_selection_context : {};
+  const components = isRecord(entity.asset_selection_components) ? entity.asset_selection_components : {};
+  const alternates = Array.isArray(entity.asset_selection_alternates)
+    ? entity.asset_selection_alternates.filter(isRecord).slice(0, 3)
+    : [];
+  const selectedName = String(entity.asset_name ?? entity.native_variant ?? entity.family_id ?? "Matched family");
+  const nearby = Array.isArray(context.nearby_families)
+    ? context.nearby_families.map(String).slice(0, 4)
+    : [];
+  const componentRows = [
+    ["Envelope", finiteNumber(components.shape)],
+    ["Footprint", finiteNumber(components.footprint)],
+    ["Room context", finiteNumber(components.context)],
+    ["Mesh detail", finiteNumber(components.detail)],
+  ] as const;
+  return (
+    <section className="property-section asset-match-section">
+      <div className="asset-match-heading">
+        <div><ScanSearch size={14} /><h3>Context match</h3></div>
+        <span className={entity.asset_selection_review_required ? "review" : "matched"}>
+          {Math.round(score * 100)}% {entity.asset_selection_review_required ? "check" : "match"}
+        </span>
+      </div>
+      <strong className="asset-match-name">{selectedName}</strong>
+      <div className="asset-match-context">
+        <span>{String(context.installation ?? "placement unknown").replaceAll("_", " ")}</span>
+        {context.room_label ? <span>{String(context.room_label)}</span> : null}
+        {finiteNumber(context.nearest_wall_m) !== null ? <span>{finiteNumber(context.nearest_wall_m)!.toFixed(2)} m to wall</span> : null}
+      </div>
+      <div className="asset-match-metrics">
+        {componentRows.map(([label, value]) => value === null ? null : (
+          <div key={label} className="asset-match-metric">
+            <span>{label}</span><i><b style={{ width: `${Math.round(value * 100)}%` }} /></i><code>{Math.round(value * 100)}</code>
+          </div>
+        ))}
+      </div>
+      <div className="asset-match-speed">
+        <Gauge size={13} />
+        <span>{elapsedUs === null ? "Local decision" : `${(elapsedUs / 1000).toFixed(3)} ms decision`}</span>
+        {margin !== null ? <span>{Math.round(margin * 1000) / 10}% lead</span> : null}
+        <span>{Number(entity.asset_candidate_count ?? 0)} candidates</span>
+      </div>
+      {nearby.length ? <p className="asset-nearby">Nearby: {nearby.join(" · ")}</p> : null}
+      {alternates.length ? (
+        <div className="asset-alternates">
+          <span>Next best</span>
+          {alternates.map((alternate, index) => (
+            <div key={String(alternate.asset_uid ?? alternate.native_variant ?? index)}>
+              <b>{String(alternate.asset_name ?? alternate.native_variant ?? "Alternative")}</b>
+              <code>{Math.round((finiteNumber(alternate.score) ?? 0) * 100)}%</code>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function finiteNumber(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 function ReviewRiskSection({ priority }: { priority: ReviewPriority }) {

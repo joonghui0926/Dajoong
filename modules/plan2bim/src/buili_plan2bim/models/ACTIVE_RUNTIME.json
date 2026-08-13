@@ -1,0 +1,165 @@
+{
+  "schema_version": "dajoong.active-runtime.v1",
+  "legacy_runtime_policy": "deny",
+  "active_primary_model": {
+    "path": "aec-global-enclosure-v1.onnx",
+    "manifest_path": "aec-global-enclosure-v1.onnx.json",
+    "qualification_path": "aec-global-enclosure-v1.qualification.json",
+    "sha256": "36bcfe230be22ed869eb7bc3a940805c516dd0970c66649f944f0d5451ff1817",
+    "production_authorized": false,
+    "specialist_scope": "building_systems_only",
+    "architectural_execution_policy": "skip_unless_specialist_mode_is_building_systems_or_combined"
+  },
+  "semantic_runtime": {
+    "role": "legacy_noncommercial_research_teacher",
+    "delivery": "server_side_injected_private_artifact",
+    "missing_artifact_policy": "fail_closed_except_explicit_smoke_test",
+    "path_env": "DAJOONG_SEMANTIC_MODEL_PATH",
+    "installed_path": "semantic-model.onnx",
+    "max_side": 2048,
+    "model_version": "cubicasa5k-research-teacher-onnx-v1",
+    "sha256": "4d38d309b0d908e61fd837554e8a8c7a344df4f0f9ab429e8cf146c6dc506d85",
+    "license_scope": "noncommercial_research_only",
+    "production_authorized": false
+  },
+  "global_topology_student": {
+    "status": "research_v22_geometry_diagnostic_only_not_product_qualified",
+    "model_version": "dajoong-global-program-student-v22-research",
+    "view_contract": "native_overlapping_windows_plus_explicit_complete_sheet_context",
+    "oriented_evidence_rotation_contract": "c4_spatial_rotate_swap_axis_channels_on_odd_quadrants_v1",
+    "target_channels": [
+      "exterior_boundary",
+      "wall_centerline",
+      "junction",
+      "opening",
+      "room_seed",
+      "room_interior"
+    ],
+    "synthetic_data_role": "synthetic_pretrain_only",
+    "real_calibration_policy": "direct_whole_sheet_visual_annotation_with_commercial_rights",
+    "native_detail_policy": "source_resolution_refinement_required_for_every_emitted_element",
+    "known_stale_checkpoint_defect": "v7 and older checkpoints learned contradictory horizontal and vertical evidence labels under odd quarter-turn augmentation and must not be promoted or warm-started",
+    "promotion_gate": "commercial-rights real-drawing development plus untouched qualification holdout",
+    "production_authorized": false
+  },
+  "local_element_student": {
+    "status": "global_dual_authority_architecture_implemented_retraining_and_holdout_qualification_required",
+    "model_version": "dajoong-local-element-student-v16-global-dual-authority-relational-hierarchy",
+    "oriented_evidence_rotation_contract": "c4_spatial_rotate_swap_axis_channels_on_odd_quadrants_v1",
+    "candidate_alignment_contract": "mutual_coverage_072_iou_055_or_truth_v1",
+    "candidate_hypothesis_context_contract": "nested_proposal_graph_and_aligned_equipment_runs_v2",
+    "candidate_context_contract": "letterbox_aligned_bbox_room_wall_and_equipment_run_relations_v5",
+    "perception_authority_contract": "independent_local_global_structure_and_semantic_authorities_v2",
+    "family_contract": "foreground_family_auxiliary_consistency_v2",
+    "view_contract": "explicit_candidate_focus_plus_unmodified_assembly_and_room_views_plus_complete_plan_and_aligned_equipment_run_graph",
+    "input_contract": "cad_focused_detail_assembly_room_letterbox_aligned_relations_v7",
+    "spatial_pooling": "4x4_layout_preserving_program",
+    "native_candidate_policy": "exhaustive_native_ledger_then_deferred_building_set_resolution_without_early_ambiguous_rejection",
+    "direct_candidate_supervision_contract": "one_best_iou_050_positive_fragments_background_ambiguous_ignore_v3",
+    "set_decoder_contract": "host_validated_instance_clustering_equipment_run_semantics_and_deferred_two_sided_support_v3",
+    "runtime_reality_gap": "real_candidate_background_share_measured_at_95.6_percent_on_cubi_020_versus_11.3_percent_in_retired_v8_corpus",
+    "direct_real_corpus": "ephemeral_not_retained_rebuild_from_direct_source_pixel_manifest",
+    "direct_real_corpus_scope": "one manually reviewed public research sheet; structural ceiling only, excluded from official evaluation and insufficient for production promotion",
+    "known_replaced_defect": "v12 normalized candidate coordinates in source space while sampling a letterboxed whole-plan tensor, so non-square sheets read the wrong global location; it also multiplied fine and family probabilities and biased acceptance by taxonomy cardinality",
+    "v13_research_diagnostic": "letterbox alignment restored real matches but one-box classification still confused open-plan wall-hosted casework because room labels overrode equipment-run relationships; v14 removed that shortcut and sealed aligned-run evidence",
+    "v16_structural_change": "existence and footprint geometry now use independent local and complete-plan visual encoders plus physical relations while excluding room-name shortcuts; semantic identity has a separate local and complete-plan authority, so unfamiliar real symbols remain unresolved review candidates instead of disappearing as background",
+    "v16_unknown_preservation_contract": "a high-objectness native source mark is compiled as editable review-required unknown geometry when fine taxonomy is uncertain; only the independent structural authority may reject existence",
+    "cubi_020_direct_reviewed_product_sample_candidate_diagnostic": {
+      "official_evaluation": false,
+      "reviewed_element_count": 65,
+      "native_candidate_count": 5617,
+      "evidence_coverage_recall": 1.0,
+      "strict_iou_050_recall": 0.9076923077,
+      "pixels_per_meter": 100.0,
+      "conclusion": "candidate discovery sees the reviewed product sample; semantic acceptance and precise footprint fitting remain the dominant defects"
+    },
+    "production_authorized": false
+  },
+  "semantic_decoder": {
+    "version": "dajoong-semantic-junction-decoder-v2",
+    "junction_threshold": 0.4,
+    "uses_output_channels": "0-43",
+    "features": [
+      "global_room_and_icon_segmentation",
+      "four_corner_fixture_geometry",
+      "reciprocal_opening_endpoints",
+      "wall_context_opening_validation",
+      "independent_segmentation_corner_corroboration",
+      "large_enclosed_unclassified_room_recovery",
+      "bounded_peak_pairing"
+    ]
+  },
+  "reconstruction_method": {
+    "version": "dajoong-forest-reconstruction-v2",
+    "primary_representation": "global_spatial_evidence_graph",
+    "stages": [
+      "full_sheet_view_and_topology",
+      "specialist_element_evidence",
+      "host_and_containment_relations",
+      "constraint_checked_bim_compile",
+      "rendered_bim_reprojection_audit"
+    ],
+    "release_requires_independent_expert_consensus": true
+  },
+  "wall_vectorization": {
+    "version": "full-sheet-directional-center-thickness-v2",
+    "features": [
+      "full_sheet_semantic_context",
+      "t_x_junction_direction_identity",
+      "mask_cross_section_centering",
+      "per_wall_thickness",
+      "collinear_opening_gap_host_wall_merge",
+      "evidence_gated_raster_center_alignment",
+      "review_gated_non_orthogonal_residuals"
+    ]
+  },
+  "canonical_evaluation": {
+    "repository_relative_path": "artifacts/direct-source-pixel-ground-truth-v3",
+    "sheet_count": 1,
+    "status": "valid_direct_research_packet_but_insufficient_for_product_claims",
+    "annotation_policy": "independent_direct_native_whole_sheet_visual_annotation_required",
+    "scope": "noncommercial_single_reviewer_research_evaluation_only",
+    "geometry_audit_path": "artifacts/structural-v8-directgt-evaluation-cubi014-wallopeningv5/report.json",
+    "official_f1_allowed": false,
+    "reason": "Only cubi-014 currently satisfies direct source-pixel authorship and full omission-inventory contracts. One public research sheet cannot support a production or any-drawing F1 claim."
+  },
+  "current_research_pipeline_diagnostic": {
+    "official_evaluation": false,
+    "source_sheet": "cubi-014",
+    "global_model": "dajoong-global-program-student-v22-research",
+    "local_model": "dajoong-local-element-student-v25-research-pre-v16-global-authority-split",
+    "one_cpu_thread_total_ms": 5451.942,
+    "wall_centerline_f1_at_4px": 0.970685,
+    "wall_centerline_f1_at_8px": 0.975885,
+    "wall_centerline_f1_at_16px": 0.982404,
+    "opening_entity_f1": 1.0,
+    "fixture_f1": 0.040816,
+    "room_semantic_f1": 0.0,
+    "conclusion": "geometry and openings are strong on one research sheet, while real object and room semantics are not product-ready"
+  },
+  "historical_invalid_evaluations": [
+    {
+      "repository_relative_path": "artifacts/direct-ground-truth-50",
+      "status": "retired_review_support_not_ground_truth",
+      "official_f1_allowed": false,
+      "reason": "Legacy manifests do not prove independent source-pixel geometry authorship and their full-editable omission inventory is incomplete."
+    },
+    {
+      "repository_relative_path": "artifacts/direct-ground-truth-v2/production-router-evaluation.json",
+      "status": "obsolete_incompatible_diagnostic",
+      "official_f1_allowed": false,
+      "reason": "This 86533-parameter tile specialist used the pre-product symbol contract and is not the current hierarchical architectural pipeline. Its approximately 0.14 wall F1 cannot qualify or describe the current product."
+    }
+  ],
+  "release_allowed": false,
+  "release_blockers": [
+    "primary_model_not_production_authorized",
+    "semantic_model_noncommercial_research_only",
+    "evaluation_corpus_noncommercial_and_single_reviewer",
+    "full_editable_bim_direct_real_training_and_independent_holdout_corpora_absent",
+    "global_dual_authority_v16_checkpoint_not_trained_or_qualified",
+    "current_global_and_local_checkpoint_pair_not_qualified_for_the_48_class_product_contract",
+    "direct-real holdout qualification incomplete",
+    "required_bim_claims_not_at_release_threshold"
+  ]
+}

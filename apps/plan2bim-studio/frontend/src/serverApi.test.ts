@@ -4,7 +4,7 @@ import { isTrustedStudioApiRequest, resolveStudioApiOrigin, studioApiUrl } from 
 
 describe("Dajoong server-only client boundary", () => {
   it("defaults production builds to the canonical conversion API", () => {
-    expect(resolveStudioApiOrigin(undefined, false)).toBe("https://studio-api.builiconstruction.com");
+    expect(resolveStudioApiOrigin(undefined, false)).toBe("https://studio-api.dajoongbim.com");
   });
 
   it("allows a loopback server only in development", () => {
@@ -14,7 +14,7 @@ describe("Dajoong server-only client boundary", () => {
 
   it("rejects alternate production inference services", () => {
     expect(() => resolveStudioApiOrigin("https://example.com", false)).toThrow(/Dajoong/i);
-    expect(() => resolveStudioApiOrigin("https://studio-api.builiconstruction.com/proxy", false)).toThrow(/origin only/i);
+    expect(() => resolveStudioApiOrigin("https://studio-api.dajoongbim.com/proxy", false)).toThrow(/origin only/i);
   });
 
   it("builds and recognizes only canonical API requests", () => {

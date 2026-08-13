@@ -1,0 +1,1526 @@
+{
+  "schema_version": "dajoong.curated-bim-family-catalog.v1",
+  "source_catalog_schema": "dajoong.licensed-mesh-catalog.v1",
+  "provider": "Objaverse 1.0 API (Sketchfab-origin downloadable assets)",
+  "license_allowlist": [
+    "by",
+    "cc0"
+  ],
+  "selection_policy": "semantic-family + exact evidence envelope + local CPU cache",
+  "delivery_policy": "server-only content-addressed lazy fetch",
+  "network_on_conversion_path": false,
+  "entry_count": 58,
+  "entries": [
+    {
+      "uid": "a9e826fe9bf4492fb338a8b5e2cac482",
+      "families": [
+        "armchair"
+      ],
+      "name": "Heavy Wood Armchair",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/a9e826fe9bf4492fb338a8b5e2cac482",
+      "author": "MrPuppet",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:34.120555+00:00",
+      "source_sha256": "b520d704300133cb30c7f184e9572ba5b6c4f571247ef51910fd1726a4cbcf90",
+      "source_bytes": 27200,
+      "mesh_path": "meshes/a9e826fe9bf4492fb338a8b5e2cac482.npz",
+      "mesh_sha256": "2832c3fbd1a8827e59f52289735b1a67246bee797b5087b53d0bc6ef6fddc32d",
+      "vertex_count": 530,
+      "face_count": 588,
+      "normalized_extents": [
+        0.0328995,
+        0.0282999,
+        0.0471369
+      ],
+      "horizontal_aspect": 1.1625323,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "69f1c0489a144f3c98e66dcfe72b3969",
+      "families": [
+        "armchair"
+      ],
+      "name": "Oldfashioned armchair",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/69f1c0489a144f3c98e66dcfe72b3969",
+      "author": "yezzyx",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:34.274744+00:00",
+      "source_sha256": "42dcc22349774f54d5547732fd76faaabb04a963cfe4cc5c1631744b72418318",
+      "source_bytes": 2375508,
+      "mesh_path": "meshes/69f1c0489a144f3c98e66dcfe72b3969.npz",
+      "mesh_sha256": "c505bb481712f008b7c452a237aa0b9a92ba6011e36da9ef65392c89933fcee6",
+      "vertex_count": 5892,
+      "face_count": 10864,
+      "normalized_extents": [
+        20.986948,
+        24.1039047,
+        24.1426029
+      ],
+      "horizontal_aspect": 1.1485188,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "1bf163160fa34a2bac8c9c6218675478",
+      "families": [
+        "base_cabinet"
+      ],
+      "name": "Bar counter",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/1bf163160fa34a2bac8c9c6218675478",
+      "author": "Adam",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:38.799394+00:00",
+      "source_sha256": "d648cfbeaf2c9721b89c28331a2f5dd8afe62bb03bebe7c35e8fa4c38736e531",
+      "source_bytes": 3155940,
+      "mesh_path": "meshes/1bf163160fa34a2bac8c9c6218675478.npz",
+      "mesh_sha256": "2a199ccaebc3a47e3b3876c8ad34ab53a65caf888bb9d9d49f65bdcb354b797d",
+      "vertex_count": 1132,
+      "face_count": 996,
+      "normalized_extents": [
+        2.5358069,
+        0.8147384,
+        1.1009665
+      ],
+      "horizontal_aspect": 3.1124187,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "fa65acd9358f4e639e5ff13c66aff2f1",
+      "families": [
+        "base_cabinet"
+      ],
+      "name": "Sink + Cabinet",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/fa65acd9358f4e639e5ff13c66aff2f1",
+      "author": "synistersyrup",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:38.830993+00:00",
+      "source_sha256": "2cf7f8ae7c7ec7f556cf31aea48844bf6952a48a25879b3e170421f72d8e55d2",
+      "source_bytes": 158048,
+      "mesh_path": "meshes/fa65acd9358f4e639e5ff13c66aff2f1.npz",
+      "mesh_sha256": "4800d82e8844678733b7dbb31554e3525816e07fe90f3c5823c9c37c69f3ad32",
+      "vertex_count": 3096,
+      "face_count": 4506,
+      "normalized_extents": [
+        321.2841187,
+        156.8117371,
+        170.8718109
+      ],
+      "horizontal_aspect": 2.0488524,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "82e16f7b20604481b0c805e4b74b42af",
+      "families": [
+        "bed"
+      ],
+      "name": "Bunk Beds",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/82e16f7b20604481b0c805e4b74b42af",
+      "author": "A110082050_何奇軒",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:33.697969+00:00",
+      "source_sha256": "ca9bb52cf22fbb4cb4dcd650aab1a5afd803f045d37150f36288fe93e4135ad6",
+      "source_bytes": 43024,
+      "mesh_path": "meshes/82e16f7b20604481b0c805e4b74b42af.npz",
+      "mesh_sha256": "10b9ab151128b2d02738cd2e15170d96460463a01aa2d1bc0cd32c50c23cf126",
+      "vertex_count": 552,
+      "face_count": 276,
+      "normalized_extents": [
+        1.9,
+        1.0500002,
+        1.4900001
+      ],
+      "horizontal_aspect": 1.8095235,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "7e5f290cf4474aba93979b6c7244f142",
+      "families": [
+        "bed"
+      ],
+      "name": "Low Poly Bunk Bed #2",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/7e5f290cf4474aba93979b6c7244f142",
+      "author": "JustBlender",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:33.712517+00:00",
+      "source_sha256": "d11ebf7bfdee84c20654b5d00b5281cf1675ef98fc52256ca8c1b5950f7d9ef7",
+      "source_bytes": 38548,
+      "mesh_path": "meshes/7e5f290cf4474aba93979b6c7244f142.npz",
+      "mesh_sha256": "308199f188773a3bd05b036b27102c5e19f0791244252b3d7ce54f4e5a01d11b",
+      "vertex_count": 938,
+      "face_count": 462,
+      "normalized_extents": [
+        197.9999847,
+        103.0000229,
+        159.0
+      ],
+      "horizontal_aspect": 1.9223295,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "ca1990835c3c4be3b2f1c59eb3355bd9",
+      "families": [
+        "bed"
+      ],
+      "name": "Bed",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/ca1990835c3c4be3b2f1c59eb3355bd9",
+      "author": "joelandy",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:33.798666+00:00",
+      "source_sha256": "ff0a091e8c423f93ac4f8f26a0621a11356e484764b59b7b6549aaf895e2e163",
+      "source_bytes": 642852,
+      "mesh_path": "meshes/ca1990835c3c4be3b2f1c59eb3355bd9.npz",
+      "mesh_sha256": "91e97f6b5aa0eb3c17f8fef8966acd4466552b58efb38970a1d587990c1012f6",
+      "vertex_count": 1419,
+      "face_count": 1952,
+      "normalized_extents": [
+        513.7039185,
+        664.7352295,
+        315.5821838
+      ],
+      "horizontal_aspect": 1.2940046,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "b547d81073b64d3e97200fd3ae9a74af",
+      "families": [
+        "bed"
+      ],
+      "name": "Bed - Sample",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/b547d81073b64d3e97200fd3ae9a74af",
+      "author": "Mifu Saja",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:33.868872+00:00",
+      "source_sha256": "9607742b2ab49f9ead596f3bef9f7bd3aa84bcd7f2ebd578cff2ac98fc665ec3",
+      "source_bytes": 303860,
+      "mesh_path": "meshes/b547d81073b64d3e97200fd3ae9a74af.npz",
+      "mesh_sha256": "93d45676dafb0f0a7ae7635f33fde102964650294cb2c1b04471511f98309b40",
+      "vertex_count": 3850,
+      "face_count": 6304,
+      "normalized_extents": [
+        100.0,
+        210.6950531,
+        91.8548965
+      ],
+      "horizontal_aspect": 2.1069505,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "e7c90c3d242b463d9f7346ac39742105",
+      "families": [
+        "bench"
+      ],
+      "name": "Low Poly Bench #1",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/e7c90c3d242b463d9f7346ac39742105",
+      "author": "JustBlender",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.541843+00:00",
+      "source_sha256": "f228dd82fde444d3910a32828712c44e6460696f61bab1e7c83f071bc41a43b4",
+      "source_bytes": 4488,
+      "mesh_path": "meshes/e7c90c3d242b463d9f7346ac39742105.npz",
+      "mesh_sha256": "b0cf55b5002552262e5a1ada039f7828f46c4af01f0f8f63e1a58a307c9da56e",
+      "vertex_count": 64,
+      "face_count": 32,
+      "normalized_extents": [
+        200.0,
+        40.0000038,
+        45.0000038
+      ],
+      "horizontal_aspect": 4.9999995,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "e13434a196e842b3980aef22835e4ecb",
+      "families": [
+        "bench"
+      ],
+      "name": "Modern Park Bench",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/e13434a196e842b3980aef22835e4ecb",
+      "author": "gvelicu",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.656735+00:00",
+      "source_sha256": "64f5d1eab618808150005f69e3cc367c7b161d61627084e74630c12248b565c7",
+      "source_bytes": 853248,
+      "mesh_path": "meshes/e13434a196e842b3980aef22835e4ecb.npz",
+      "mesh_sha256": "fd8e079dd5e83d3e906b2976ad2c01958310d83f79f1cf62b9379be70e277986",
+      "vertex_count": 1552,
+      "face_count": 894,
+      "normalized_extents": [
+        137.0396118,
+        127.262207,
+        28.3476257
+      ],
+      "horizontal_aspect": 1.0768288,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "7688dcf5b87041a3bea09b0aead0f50e",
+      "families": [
+        "bench"
+      ],
+      "name": "Bench",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/7688dcf5b87041a3bea09b0aead0f50e",
+      "author": "baconxav",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.707199+00:00",
+      "source_sha256": "db9ea2b418d8a5fcfeea43014dffd57d915cd26e194cb83ad0f3edd8dc853816",
+      "source_bytes": 597772,
+      "mesh_path": "meshes/7688dcf5b87041a3bea09b0aead0f50e.npz",
+      "mesh_sha256": "cc41d12a0de55dfcae4c67064ef737540a66fd49f092c3f9ca8475c5db9083dd",
+      "vertex_count": 3429,
+      "face_count": 3988,
+      "normalized_extents": [
+        23.1755733,
+        12.3070927,
+        5.6179581
+      ],
+      "horizontal_aspect": 1.8831071,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "1dae31a7fa54440688eebaa0376c56d3",
+      "families": [
+        "chair"
+      ],
+      "name": "Baldi's Basics Chair",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/1dae31a7fa54440688eebaa0376c56d3",
+      "author": "ThatJamGuy",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:34.297107+00:00",
+      "source_sha256": "5cb35cdee5f1325852d7ac6bba9539f96fbd4c9beff64b5c4a55a89ff58c29b5",
+      "source_bytes": 9008,
+      "mesh_path": "meshes/1dae31a7fa54440688eebaa0376c56d3.npz",
+      "mesh_sha256": "dd33e63f0c639a33b7777a2f6ace3fda80a701acabd46192d4c1a8316b268529",
+      "vertex_count": 144,
+      "face_count": 72,
+      "normalized_extents": [
+        2.0000005,
+        2.000001,
+        3.700001
+      ],
+      "horizontal_aspect": 1.0000002,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "3177fdf2630c4922a43fecb876d96e1d",
+      "families": [
+        "chair"
+      ],
+      "name": "Lowpoly Desktop Chair",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/3177fdf2630c4922a43fecb876d96e1d",
+      "author": "Polygonal Mind",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:34.861449+00:00",
+      "source_sha256": "e36708742ae2aec55a1151dccd6527b06635b956a5be4c5ec4d4617284df0496",
+      "source_bytes": 169924,
+      "mesh_path": "meshes/3177fdf2630c4922a43fecb876d96e1d.npz",
+      "mesh_sha256": "605f3c40a17848c074d19e7fecc3fc1f7314880dec37ce367a3f26f232f4f4ea",
+      "vertex_count": 1377,
+      "face_count": 657,
+      "normalized_extents": [
+        0.6916209,
+        0.8180436,
+        1.3444989
+      ],
+      "horizontal_aspect": 1.1827919,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "30d1c501adde4e9ea5d60b4fbe64e1ef",
+      "families": [
+        "chair"
+      ],
+      "name": "Wooden Chair",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/30d1c501adde4e9ea5d60b4fbe64e1ef",
+      "author": "Jpegger",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:34.918787+00:00",
+      "source_sha256": "71e0ca8d1cf280e416df802f94a1c0855d4b94bc09251a29bf736eac4f6d5e0b",
+      "source_bytes": 920304,
+      "mesh_path": "meshes/30d1c501adde4e9ea5d60b4fbe64e1ef.npz",
+      "mesh_sha256": "36c4d5001928441972638e2a4dd469a1a74cedc4976af093dd9cbe39ced53947",
+      "vertex_count": 1028,
+      "face_count": 966,
+      "normalized_extents": [
+        67.7558289,
+        62.5600014,
+        155.249588
+      ],
+      "horizontal_aspect": 1.0830535,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "351d798f9cc3451099200c5235aee352",
+      "families": [
+        "chair"
+      ],
+      "name": "Wood Chair",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/351d798f9cc3451099200c5235aee352",
+      "author": "MrPuppet",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:34.961562+00:00",
+      "source_sha256": "a12df04e91d4cb56d90a6226b2ea52cd056b560f926e26c3235c16666a16fee1",
+      "source_bytes": 377984,
+      "mesh_path": "meshes/351d798f9cc3451099200c5235aee352.npz",
+      "mesh_sha256": "e00d0871d366eba0c48c0a78241c35958ccb2db69c2a4f4cd05d2c7b47a118d9",
+      "vertex_count": 2310,
+      "face_count": 2748,
+      "normalized_extents": [
+        0.0169998,
+        0.0186778,
+        0.03597
+      ],
+      "horizontal_aspect": 1.0987073,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "40d8a6d5ad4a4887a2ab93d782f5db99",
+      "families": [
+        "coffee_table"
+      ],
+      "name": "Table",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/40d8a6d5ad4a4887a2ab93d782f5db99",
+      "author": "Hdhunk",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:36.179035+00:00",
+      "source_sha256": "4c971adf58217d78f8d45761508d053bc6714a05f02b32c89f3d03df3af7cec3",
+      "source_bytes": 1779348,
+      "mesh_path": "meshes/40d8a6d5ad4a4887a2ab93d782f5db99.npz",
+      "mesh_sha256": "32ba62a50c04920f514469a1eec1159a541e633179506956c92ffa88bf428f59",
+      "vertex_count": 120,
+      "face_count": 60,
+      "normalized_extents": [
+        1.4400001,
+        3.2,
+        1.325
+      ],
+      "horizontal_aspect": 2.2222221,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "8d8bd092c4294c55ac726666306365d3",
+      "families": [
+        "coffee_table"
+      ],
+      "name": "Table",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/8d8bd092c4294c55ac726666306365d3",
+      "author": "Lasse Harm",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:36.203970+00:00",
+      "source_sha256": "8eae05dcd8898a4af91571fbee577fbd132456848887e959c0357fdbb3cc1dac",
+      "source_bytes": 56232,
+      "mesh_path": "meshes/8d8bd092c4294c55ac726666306365d3.npz",
+      "mesh_sha256": "b2f3af117d31156134e731252609624f2ddafbca901c5b0600e9a3ea8d5ea2b8",
+      "vertex_count": 544,
+      "face_count": 300,
+      "normalized_extents": [
+        26.0,
+        20.0,
+        20.0
+      ],
+      "horizontal_aspect": 1.3,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "b4cb920d8f2e4dc9b714062577be81e0",
+      "families": [
+        "coffee_table"
+      ],
+      "name": "Wood Table",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/b4cb920d8f2e4dc9b714062577be81e0",
+      "author": "Bryce Porter",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:36.222574+00:00",
+      "source_sha256": "3f3a755a6e099f8f6b8e8ec2cce0e63916a6522adfb4caa9f7547c068a47e168",
+      "source_bytes": 64396,
+      "mesh_path": "meshes/b4cb920d8f2e4dc9b714062577be81e0.npz",
+      "mesh_sha256": "442fc7a0359c41a5ddb4f294242cd7c126de967faee9a7fe9cda58ece70ae829",
+      "vertex_count": 1690,
+      "face_count": 616,
+      "normalized_extents": [
+        2.403348,
+        3.4524779,
+        1.3968012
+      ],
+      "horizontal_aspect": 1.4365286,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "8983421696d54cecb10634a4115da469",
+      "families": [
+        "coffee_table"
+      ],
+      "name": "Table Transformer",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/8983421696d54cecb10634a4115da469",
+      "author": "devileno4ek",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:36.365542+00:00",
+      "source_sha256": "7124bb69c53b33a1b1b1867834d5cef4cb9729cf21f0567395de334ae4b7cf51",
+      "source_bytes": 3585544,
+      "mesh_path": "meshes/8983421696d54cecb10634a4115da469.npz",
+      "mesh_sha256": "9d2c71155e0ed015e6ca8e697eb572bfa2f150cacb390bb4441d1c5abc3fc3f6",
+      "vertex_count": 1675,
+      "face_count": 1810,
+      "normalized_extents": [
+        2.8490329,
+        2.8490329,
+        1.3520021
+      ],
+      "horizontal_aspect": 1.0,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "f4031bb5f7e64ebca4c37d4fa5ba6e8d",
+      "families": [
+        "coffee_table"
+      ],
+      "name": "LP Table",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/f4031bb5f7e64ebca4c37d4fa5ba6e8d",
+      "author": "doplerato",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:36.666931+00:00",
+      "source_sha256": "2bc22be99daf7683d44c72511d94ff01a90a3d79f817289942edcba3606cbe6f",
+      "source_bytes": 3374964,
+      "mesh_path": "meshes/f4031bb5f7e64ebca4c37d4fa5ba6e8d.npz",
+      "mesh_sha256": "8a007d70275f9b8e20a15f75431075f1e0ce3c3623a1137201d8cc312b697fc7",
+      "vertex_count": 3540,
+      "face_count": 4664,
+      "normalized_extents": [
+        0.1437121,
+        0.0803025,
+        0.0432709
+      ],
+      "horizontal_aspect": 1.7896347,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "b0c0c9c65d06443c87391134a62e2287",
+      "families": [
+        "coffee_table"
+      ],
+      "name": "Small Table",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/b0c0c9c65d06443c87391134a62e2287",
+      "author": "Pascal T. Monette",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:38.042811+00:00",
+      "source_sha256": "5ebc8e670d3978b6f8f9f8dd1acfaee010142249ecc7f971df0d5c0956593d55",
+      "source_bytes": 2394688,
+      "mesh_path": "meshes/b0c0c9c65d06443c87391134a62e2287.npz",
+      "mesh_sha256": "c93aa6952cc328627513c15b818aa206ffca4982a09e490495add268b0bb8224",
+      "vertex_count": 26814,
+      "face_count": 48832,
+      "normalized_extents": [
+        1.988,
+        1.988,
+        1.2135428
+      ],
+      "horizontal_aspect": 1.0,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "21c67e417ffe49c79c358b43df690a15",
+      "families": [
+        "dining_table"
+      ],
+      "name": "Table",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/21c67e417ffe49c79c358b43df690a15",
+      "author": "sondre_groterud",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:34.974849+00:00",
+      "source_sha256": "94ed22585bd69ad6fc3934f3bc295cc020f1025c2f57f3c4164dfd51af13b7cc",
+      "source_bytes": 6596,
+      "mesh_path": "meshes/21c67e417ffe49c79c358b43df690a15.npz",
+      "mesh_sha256": "f16ce0d3e7f3ac6674978008001a45ccf06e0fec5fa9fca28be9c0aadade140d",
+      "vertex_count": 120,
+      "face_count": 60,
+      "normalized_extents": [
+        8.0,
+        8.0,
+        5.25
+      ],
+      "horizontal_aspect": 1.0,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "0c1ec5c3e561484686b251fec88189f8",
+      "families": [
+        "dining_table"
+      ],
+      "name": "Height Adjustable Table Game Download",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/0c1ec5c3e561484686b251fec88189f8",
+      "author": "RanPro",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:35.105832+00:00",
+      "source_sha256": "d44be7689d9040362699eee6ffe4ac05a6cf37b1fcc0402750c584d799a9548d",
+      "source_bytes": 1056928,
+      "mesh_path": "meshes/0c1ec5c3e561484686b251fec88189f8.npz",
+      "mesh_sha256": "b5a48ec32621874f3a68ab8209e87bd54233f2885815547f33dc996aee4bd7e4",
+      "vertex_count": 964,
+      "face_count": 732,
+      "normalized_extents": [
+        2.0,
+        1.142858,
+        1.0714279
+      ],
+      "horizontal_aspect": 1.7499987,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "97f7dd4b5d9342fb8004763b67655f37",
+      "families": [
+        "dining_table"
+      ],
+      "name": "Dining set",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/97f7dd4b5d9342fb8004763b67655f37",
+      "author": "aameador",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:35.130831+00:00",
+      "source_sha256": "99c467e87e8f920a62f7e560de2fed248d49c02feeb0586ca7c660d6cfa5b741",
+      "source_bytes": 128660,
+      "mesh_path": "meshes/97f7dd4b5d9342fb8004763b67655f37.npz",
+      "mesh_sha256": "b3a73f065ccd27cb368999f8af0f2f85f7fddae253813ddf3f2433ce0fedb749",
+      "vertex_count": 2998,
+      "face_count": 2200,
+      "normalized_extents": [
+        3.990371,
+        6.0,
+        2.8692255
+      ],
+      "horizontal_aspect": 1.5036196,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "5f7332013e4a41e6805b33d5ec1d7cb3",
+      "families": [
+        "dining_table"
+      ],
+      "name": "3d Modelling Table",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/5f7332013e4a41e6805b33d5ec1d7cb3",
+      "author": "Leonlvat",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:35.178099+00:00",
+      "source_sha256": "c2b37593da6ee6dcf5c5750ce7111dac037446e2967d893f584c0e6160be0794",
+      "source_bytes": 600688,
+      "mesh_path": "meshes/5f7332013e4a41e6805b33d5ec1d7cb3.npz",
+      "mesh_sha256": "8206720cbaffeb4c87017aa9b152fb0c177b3c47abae8e92bc2284de366495f4",
+      "vertex_count": 15632,
+      "face_count": 7836,
+      "normalized_extents": [
+        9.407135,
+        5.9605346,
+        4.0333071
+      ],
+      "horizontal_aspect": 1.5782368,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "f52b015abe1c473e8fddb704b7f031b8",
+      "families": [
+        "dishwasher"
+      ],
+      "name": "Dishwasher",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/f52b015abe1c473e8fddb704b7f031b8",
+      "author": "misha.yast71",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.835491+00:00",
+      "source_sha256": "5c85736b79b6e68eddd989ef4dc0260d81aa0b209a7d392613576069f2532d8e",
+      "source_bytes": 102208,
+      "mesh_path": "meshes/f52b015abe1c473e8fddb704b7f031b8.npz",
+      "mesh_sha256": "3c60390ff5cc80837b6678ea936afee704bd8f49d2d7c68f0d231b1b91361ced",
+      "vertex_count": 1137,
+      "face_count": 1328,
+      "normalized_extents": [
+        14.6130238,
+        13.5848379,
+        18.5368843
+      ],
+      "horizontal_aspect": 1.0756863,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "642ba4ea8c9e4c50adcc09f9a7462514",
+      "families": [
+        "refrigerator"
+      ],
+      "name": "Fridge",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/642ba4ea8c9e4c50adcc09f9a7462514",
+      "author": "kananav",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.428708+00:00",
+      "source_sha256": "17299890a45efa45ddfde84ba45f4a9b2f38af19166d4c058c17d348de879aba",
+      "source_bytes": 821872,
+      "mesh_path": "meshes/642ba4ea8c9e4c50adcc09f9a7462514.npz",
+      "mesh_sha256": "7c8f4d3c17294f84871857faa9672b2dc5603d5419b6a7abc085c3c5cae3a322",
+      "vertex_count": 452,
+      "face_count": 232,
+      "normalized_extents": [
+        135.1279907,
+        77.7029114,
+        201.8838196
+      ],
+      "horizontal_aspect": 1.7390338,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "fe686076735042bebef264f3b9484b20",
+      "families": [
+        "refrigerator"
+      ],
+      "name": "Fridge",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/fe686076735042bebef264f3b9484b20",
+      "author": "MrPuppet",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.452768+00:00",
+      "source_sha256": "5f887ea3b047dc7542b2bf059f49d1999af2c921f63f9aeb0d213816927cc4ca",
+      "source_bytes": 28620,
+      "mesh_path": "meshes/fe686076735042bebef264f3b9484b20.npz",
+      "mesh_sha256": "127691acdcdd941b9fd5432a7fe011018c28bcdbc1869104bba4444645374bdd",
+      "vertex_count": 581,
+      "face_count": 564,
+      "normalized_extents": [
+        0.0330353,
+        0.0274812,
+        0.0748408
+      ],
+      "horizontal_aspect": 1.2021055,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "66878d980a364b2db1a5cc44c67bb45d",
+      "families": [
+        "refrigerator"
+      ],
+      "name": "Fridge",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/66878d980a364b2db1a5cc44c67bb45d",
+      "author": "Yaseen Ali",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.481460+00:00",
+      "source_sha256": "0aaae4852ff8ae83330f57b37943a793c0639388914334acf9d95c588856cf0e",
+      "source_bytes": 137680,
+      "mesh_path": "meshes/66878d980a364b2db1a5cc44c67bb45d.npz",
+      "mesh_sha256": "d8bd960d1ecec95373f99de3151527148b44a9d95a41af4463eef411d29624c4",
+      "vertex_count": 2498,
+      "face_count": 3856,
+      "normalized_extents": [
+        28.5781746,
+        19.6306763,
+        52.2359314
+      ],
+      "horizontal_aspect": 1.4557916,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "5afccda2b78943eb9ea667e95abf1e10",
+      "families": [
+        "refrigerator"
+      ],
+      "name": "Environment Blockout - My Fridge",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/5afccda2b78943eb9ea667e95abf1e10",
+      "author": "oolin",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.523456+00:00",
+      "source_sha256": "5790a5e0d50f65050c6f513461f451fec33e73d478d24d41b69d5c491a063d8e",
+      "source_bytes": 441212,
+      "mesh_path": "meshes/5afccda2b78943eb9ea667e95abf1e10.npz",
+      "mesh_sha256": "a6c47068b7ad0028376039bf90e031d83f1c54b68c57154e43dbaf4df0bb00b7",
+      "vertex_count": 8946,
+      "face_count": 12764,
+      "normalized_extents": [
+        118.6893997,
+        136.5911255,
+        165.0
+      ],
+      "horizontal_aspect": 1.1508284,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "c48c05b0877a4ebf89ca92615519640c",
+      "families": [
+        "shower_enclosure"
+      ],
+      "name": "Dream Line French Corner Shower Enclosure",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/c48c05b0877a4ebf89ca92615519640c",
+      "author": "allenbranch",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.938231+00:00",
+      "source_sha256": "9d2c26738b3065ee9d62f4105b0e1e07014989ebf5019a1d352683e4540b766e",
+      "source_bytes": 110756,
+      "mesh_path": "meshes/c48c05b0877a4ebf89ca92615519640c.npz",
+      "mesh_sha256": "9aa382323eebce4e473a51b7758b762291d5cfb6a4ac0c31d2da631e0b96a9e8",
+      "vertex_count": 682,
+      "face_count": 414,
+      "normalized_extents": [
+        0.9113482,
+        0.8874125,
+        2.4000001
+      ],
+      "horizontal_aspect": 1.0269725,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "f69ca3ba5a8d49bd9265de758ebe676e",
+      "families": [
+        "shower_head"
+      ],
+      "name": "3D Shower Icon",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/f69ca3ba5a8d49bd9265de758ebe676e",
+      "author": "Mareon",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.793852+00:00",
+      "source_sha256": "aa1ad04681a4effbf4fab1b9af8885248cb0ecb6a6de7fd4ce79757ca9fd758e",
+      "source_bytes": 84952,
+      "mesh_path": "meshes/f69ca3ba5a8d49bd9265de758ebe676e.npz",
+      "mesh_sha256": "a06df8550a597a4c7d73edb364970726ba89017b604e22c47516215728d86180",
+      "vertex_count": 1950,
+      "face_count": 1736,
+      "normalized_extents": [
+        413.6661682,
+        10.0,
+        431.6738892
+      ],
+      "horizontal_aspect": 41.3666153,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "3d530513795f4ae68ae04b1ed3df277b",
+      "families": [
+        "shower_head"
+      ],
+      "name": "Grohe G-27940000",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/3d530513795f4ae68ae04b1ed3df277b",
+      "author": "trendforward",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.775375+00:00",
+      "source_sha256": "d30969a3df961bb347d07dfc47cbddb24bee0a0986d3b84e09a09fd3ee583ea6",
+      "source_bytes": 687208,
+      "mesh_path": "meshes/3d530513795f4ae68ae04b1ed3df277b.npz",
+      "mesh_sha256": "d3cea4f8a6326b4c1674756ea26baeb619bde89354f468c6230121fb185ab67a",
+      "vertex_count": 15606,
+      "face_count": 15258,
+      "normalized_extents": [
+        0.091037,
+        0.101738,
+        0.240988
+      ],
+      "horizontal_aspect": 1.1175456,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "b4ad53e3057f4922b273f86e7adb3466",
+      "families": [
+        "sink"
+      ],
+      "name": "Basic Sink",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/b4ad53e3057f4922b273f86e7adb3466",
+      "author": "rustbucket",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:38.108310+00:00",
+      "source_sha256": "fb58eeabffa3c607a6b9cc24dfbe9aea0801297de84e443ceb38e2a1a1e1a5b3",
+      "source_bytes": 14504,
+      "mesh_path": "meshes/b4ad53e3057f4922b273f86e7adb3466.npz",
+      "mesh_sha256": "7a1dfeaaebe399e8f56c85128e641469c9c093c641b0c0a0401b499dcd0ae056",
+      "vertex_count": 228,
+      "face_count": 124,
+      "normalized_extents": [
+        1.02176,
+        1.1316452,
+        1.9258991
+      ],
+      "horizontal_aspect": 1.107545,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "e696375b6645453d9696e3728a959d3c",
+      "families": [
+        "sink"
+      ],
+      "name": "Sink",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/e696375b6645453d9696e3728a959d3c",
+      "author": "Owen_Hall",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:38.125236+00:00",
+      "source_sha256": "94f10ebb9a70d3fc57cf558f38e1e0d545b84fe855cc9409871d6ff7ba0af203",
+      "source_bytes": 35948,
+      "mesh_path": "meshes/e696375b6645453d9696e3728a959d3c.npz",
+      "mesh_sha256": "3d437e164560ef4fb5fde583b66108c8a747261e24eb053232b085343d9b4f1e",
+      "vertex_count": 774,
+      "face_count": 724,
+      "normalized_extents": [
+        3.772424,
+        3.4769821,
+        2.195677
+      ],
+      "horizontal_aspect": 1.0849708,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "0fc7c56aa9374b9c8ac548ccc02ff4cb",
+      "families": [
+        "sink"
+      ],
+      "name": "Double_Sink",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/0fc7c56aa9374b9c8ac548ccc02ff4cb",
+      "author": "Patricklab",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:38.447885+00:00",
+      "source_sha256": "5ad1c00570d51e7f4e0f59febba0755f1dba15213cd0d49e8a503e033a1bfa32",
+      "source_bytes": 2008560,
+      "mesh_path": "meshes/0fc7c56aa9374b9c8ac548ccc02ff4cb.npz",
+      "mesh_sha256": "c0bdc5f783d92bb9209f782c439ff5447dcd3c44631bef03338f0c4283b819b1",
+      "vertex_count": 16834,
+      "face_count": 7520,
+      "normalized_extents": [
+        89.8000031,
+        51.0,
+        16.2084274
+      ],
+      "horizontal_aspect": 1.7607844,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "a6792027730c4ac6bf13accc31f717f8",
+      "families": [
+        "sink",
+        "base_cabinet"
+      ],
+      "name": "Kitchen Cabinet with Sink",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/a6792027730c4ac6bf13accc31f717f8",
+      "author": "GrillPork",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:38.204327+00:00",
+      "source_sha256": "b445127918fcac18d4754a7e84cc0e88e4906f75cf3114f1fdf60acea3892332",
+      "source_bytes": 1671996,
+      "mesh_path": "meshes/a6792027730c4ac6bf13accc31f717f8.npz",
+      "mesh_sha256": "8fbbe09580e022ef05a374ed2fb7e02df986a9aabd1d58b9f2f0d8cb054d5512",
+      "vertex_count": 1556,
+      "face_count": 1422,
+      "normalized_extents": [
+        1.0321472,
+        0.7932483,
+        1.24054
+      ],
+      "horizontal_aspect": 1.3011653,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "504248ed68e3480a807aced6f002b2d5",
+      "families": [
+        "sink",
+        "base_cabinet"
+      ],
+      "name": "Kitchen Sink",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/504248ed68e3480a807aced6f002b2d5",
+      "author": "HippoStance",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:38.344546+00:00",
+      "source_sha256": "dd7cad08f9788220f4499c8f9bd287297e29665f6001cd5d1b93949c528c1553",
+      "source_bytes": 1499068,
+      "mesh_path": "meshes/504248ed68e3480a807aced6f002b2d5.npz",
+      "mesh_sha256": "c3b886080f00db848155febb426dfae656636ba11154f893226f7accf72c3e10",
+      "vertex_count": 3493,
+      "face_count": 4822,
+      "normalized_extents": [
+        0.5674118,
+        0.8332413,
+        0.6310753
+      ],
+      "horizontal_aspect": 1.4684947,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "5ecd80e632b042a2a5e19af41d643286",
+      "families": [
+        "sink",
+        "base_cabinet"
+      ],
+      "name": "Stove, Sink, Dish drainer, Kitchen hood",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/5ecd80e632b042a2a5e19af41d643286",
+      "author": "VisitLab Cineca",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:38.677913+00:00",
+      "source_sha256": "d4e9e3cda98b0ed6638e5711994359b52f69e5a2660a864ef701743c378bb5cc",
+      "source_bytes": 3780696,
+      "mesh_path": "meshes/5ecd80e632b042a2a5e19af41d643286.npz",
+      "mesh_sha256": "fc7f87db5582ad5cfeb09c3d55e7203237c804f0ecebdf9ac2df59f1215e7062",
+      "vertex_count": 31458,
+      "face_count": 24193,
+      "normalized_extents": [
+        0.70015,
+        2.3652456,
+        2.33111
+      ],
+      "horizontal_aspect": 3.3781984,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "3572d21407c240d1a8fc5f2ec7bc8a46",
+      "families": [
+        "sofa"
+      ],
+      "name": "Hc Sofa",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/3572d21407c240d1a8fc5f2ec7bc8a46",
+      "author": "EdmodoAdministration",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:33.880621+00:00",
+      "source_sha256": "2b3b7a572a0c2f5f76e6dbb4bf25b91b5cc67d7be39bdb2e7de682443a458588",
+      "source_bytes": 12968,
+      "mesh_path": "meshes/3572d21407c240d1a8fc5f2ec7bc8a46.npz",
+      "mesh_sha256": "2ee4e957c90dc9d2c1c1b81992ca17664946978d3781a802156f51184abd90f3",
+      "vertex_count": 70,
+      "face_count": 69,
+      "normalized_extents": [
+        105.2859039,
+        22.9376564,
+        79.8743591
+      ],
+      "horizontal_aspect": 4.5900898,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "bef41fecbdff4a3fac184c6a1645ab35",
+      "families": [
+        "sofa"
+      ],
+      "name": "Couch",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/bef41fecbdff4a3fac184c6a1645ab35",
+      "author": "cameronac",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:33.901024+00:00",
+      "source_sha256": "25aad8ce4ac726b63bb73e43d26c15988961ddb8a254e944381e284e56e67b42",
+      "source_bytes": 34208,
+      "mesh_path": "meshes/bef41fecbdff4a3fac184c6a1645ab35.npz",
+      "mesh_sha256": "8d6114a4ffbf6551c88f7a976f64ff1fadedcee3a1afa6ff4bd60828db9afe7c",
+      "vertex_count": 835,
+      "face_count": 529,
+      "normalized_extents": [
+        700.0,
+        308.500061,
+        380.5000305
+      ],
+      "horizontal_aspect": 2.2690432,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "5edff150f71e4a1a940cb6f9657ee088",
+      "families": [
+        "sofa"
+      ],
+      "name": "sofa",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/5edff150f71e4a1a940cb6f9657ee088",
+      "author": "tornike.ch",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:34.020664+00:00",
+      "source_sha256": "8f63f475ffefe72eff8974ee5916b250bb2d1f190f5e483a2de4ea05558b70e8",
+      "source_bytes": 3031512,
+      "mesh_path": "meshes/5edff150f71e4a1a940cb6f9657ee088.npz",
+      "mesh_sha256": "747c469ed57637945b7e152e8e629a6c8babd4acb4046b42cbd458aec7721078",
+      "vertex_count": 9043,
+      "face_count": 16448,
+      "normalized_extents": [
+        2.0551701,
+        4.6901436,
+        2.1698499
+      ],
+      "horizontal_aspect": 2.2821195,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "2adc430b322c4130bdaadc4f9c92886c",
+      "families": [
+        "sofa"
+      ],
+      "name": "Sofa Xiu",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/2adc430b322c4130bdaadc4f9c92886c",
+      "author": "Christine.Diane.Dien",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:34.102977+00:00",
+      "source_sha256": "972a7356da4562f97bcc9295b3e08cb474fd6c35e776ae93fa4e31c64e5a29b4",
+      "source_bytes": 908952,
+      "mesh_path": "meshes/2adc430b322c4130bdaadc4f9c92886c.npz",
+      "mesh_sha256": "524ce2bf04dcf38e15da5c75a761c16c847109e2e3d37b6cdc298037fb2b8edf",
+      "vertex_count": 15689,
+      "face_count": 23252,
+      "normalized_extents": [
+        2464.4223633,
+        1326.6228027,
+        696.032959
+      ],
+      "horizontal_aspect": 1.8576663,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "11ec73f295a6445d93b6a212aacc021b",
+      "families": [
+        "stove"
+      ],
+      "name": "Stove",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/11ec73f295a6445d93b6a212aacc021b",
+      "author": "Michael Bush",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.138199+00:00",
+      "source_sha256": "d0e09d95e3cb384344f38088a8cf55828a1255b818a9c5f325a9722f74e4932e",
+      "source_bytes": 526120,
+      "mesh_path": "meshes/11ec73f295a6445d93b6a212aacc021b.npz",
+      "mesh_sha256": "d17bc3cf093e906a0348ae9513c551a71b380e7fa547574990385ec6b1fd3a08",
+      "vertex_count": 176,
+      "face_count": 150,
+      "normalized_extents": [
+        3.694521,
+        3.824934,
+        3.813664
+      ],
+      "horizontal_aspect": 1.0352991,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "c0c65d7ef38e4babb14cebbde7bdaa0f",
+      "families": [
+        "stove"
+      ],
+      "name": "Hello Neighbor Stove",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/c0c65d7ef38e4babb14cebbde7bdaa0f",
+      "author": "Juandaneitor master",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.176248+00:00",
+      "source_sha256": "8464c1c980ea956a535b5778d4fb0a16d6071cdd329ce71cf592fb75cff41d3f",
+      "source_bytes": 639576,
+      "mesh_path": "meshes/c0c65d7ef38e4babb14cebbde7bdaa0f.npz",
+      "mesh_sha256": "f780957bb9aa651a9291ba0ac0324335e2c3c27c0090d9a558c6a6ffb2b6b19e",
+      "vertex_count": 2756,
+      "face_count": 2190,
+      "normalized_extents": [
+        6.0549927,
+        8.9550018,
+        5.4449968
+      ],
+      "horizontal_aspect": 1.4789451,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "8a983b17bc484fedbc1ead6eb61b55b5",
+      "families": [
+        "stove"
+      ],
+      "name": "Gas Stove",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/8a983b17bc484fedbc1ead6eb61b55b5",
+      "author": "AyunFat",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.197874+00:00",
+      "source_sha256": "8aeb21450b6f1596a33bbc5f7876d9dcf530ae8bd0b6c147d9c2991d376dcba4",
+      "source_bytes": 183448,
+      "mesh_path": "meshes/8a983b17bc484fedbc1ead6eb61b55b5.npz",
+      "mesh_sha256": "b1aca5eae545ee51cb354e4c4bfe2b4d592bbd256cedae224a3bf322a979b51a",
+      "vertex_count": 5286,
+      "face_count": 4290,
+      "normalized_extents": [
+        2.07059,
+        2.0280001,
+        2.8784401
+      ],
+      "horizontal_aspect": 1.021001,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "b10785bcfc6e46a080614293c3ff6e1c",
+      "families": [
+        "stove"
+      ],
+      "name": "Thor Kitchen 6 Burner Gas Range",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/b10785bcfc6e46a080614293c3ff6e1c",
+      "author": "allenbranch",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.266153+00:00",
+      "source_sha256": "8a823fa7ead0bd9495b074400e62219f81d8287c2370ef79cd26ce10ac3d8288",
+      "source_bytes": 1284096,
+      "mesh_path": "meshes/b10785bcfc6e46a080614293c3ff6e1c.npz",
+      "mesh_sha256": "f39c50c7b136c32b0c2200a4350e7e283beaedc2d0b623765696bf287e595b28",
+      "vertex_count": 32884,
+      "face_count": 18871,
+      "normalized_extents": [
+        3.9943469,
+        2.3626468,
+        3.2495713
+      ],
+      "horizontal_aspect": 1.6906238,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "a59b3dc728ff45d48a053758a153249b",
+      "families": [
+        "stove"
+      ],
+      "name": "Minimalist Stove",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/a59b3dc728ff45d48a053758a153249b",
+      "author": "ElOsitoAzul",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.366922+00:00",
+      "source_sha256": "79db54478b0423df0e1a63040cde81ae3a2ea13bc1f828b0141b63e43784a357",
+      "source_bytes": 1355168,
+      "mesh_path": "meshes/a59b3dc728ff45d48a053758a153249b.npz",
+      "mesh_sha256": "25b2cbc7f3eac8020b3abe269bfc3f9e45208638ef6ebf378b9d67c3395afdde",
+      "vertex_count": 32738,
+      "face_count": 24124,
+      "normalized_extents": [
+        0.6106273,
+        0.7119605,
+        1.3245609
+      ],
+      "horizontal_aspect": 1.1659493,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "8f34c23a071d4865acc4b46ca6ec3a7f",
+      "families": [
+        "toilet"
+      ],
+      "name": "Toilet [UnTextured]",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/8f34c23a071d4865acc4b46ca6ec3a7f",
+      "author": "DannyRWDT",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:38.064234+00:00",
+      "source_sha256": "8f4b0b5435b06ab64777bf8488c6a0fbfef9a72e35bd3e155f80dcae24b100b3",
+      "source_bytes": 27324,
+      "mesh_path": "meshes/8f34c23a071d4865acc4b46ca6ec3a7f.npz",
+      "mesh_sha256": "9af5dea9fa24a8a130bee1aa8c6007caeb1b83e72caa6910aacd3ad4a5e9e9cd",
+      "vertex_count": 546,
+      "face_count": 559,
+      "normalized_extents": [
+        1.7708893,
+        1.2419724,
+        1.6679425
+      ],
+      "horizontal_aspect": 1.4258684,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "825f8e31ba0e4864ad4b902aab31af22",
+      "families": [
+        "toilet"
+      ],
+      "name": "Inodoro",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/825f8e31ba0e4864ad4b902aab31af22",
+      "author": "Jorge Sakaino",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:38.088453+00:00",
+      "source_sha256": "2f07d243719c5b14ad1990ff1f18ab5bbb358766cf49bc168c9006e3be45a77c",
+      "source_bytes": 52636,
+      "mesh_path": "meshes/825f8e31ba0e4864ad4b902aab31af22.npz",
+      "mesh_sha256": "b43cafb8708f0eb3739343846cdea5eac6d1fd5aa40a3ef1f084e11e07977efd",
+      "vertex_count": 1085,
+      "face_count": 806,
+      "normalized_extents": [
+        0.9476675,
+        1.3760049,
+        1.15052
+      ],
+      "horizontal_aspect": 1.4519912,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "c20c815f51f24e2e8b7a3213c1b73051",
+      "families": [
+        "wall_cabinet"
+      ],
+      "name": "Modern Cabinet Hutch (FREE)",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/c20c815f51f24e2e8b7a3213c1b73051",
+      "author": "Brandon Westlake",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:38.935664+00:00",
+      "source_sha256": "1662db0efdad057ba6fa914af0777c0268546b0622154b8b11ab545353ae5dc4",
+      "source_bytes": 2370680,
+      "mesh_path": "meshes/c20c815f51f24e2e8b7a3213c1b73051.npz",
+      "mesh_sha256": "d4ead2c9a66cbe1e185927b8733ee1ed84b3d337e2d661d3b3ff62cfaefc3763",
+      "vertex_count": 10992,
+      "face_count": 9400,
+      "normalized_extents": [
+        1.9554228,
+        0.7124137,
+        2.4384036
+      ],
+      "horizontal_aspect": 2.7447855,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "b4deb4cecd784aa4b7d02f361f868a26",
+      "families": [
+        "wardrobe"
+      ],
+      "name": "Low-poly closet",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/b4deb4cecd784aa4b7d02f361f868a26",
+      "author": "Adekune",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:38.984503+00:00",
+      "source_sha256": "bc3909bb242e1489e0e97fadf6c79fadad082fa82ee349bfd9bd3e247a2ed6f9",
+      "source_bytes": 224240,
+      "mesh_path": "meshes/b4deb4cecd784aa4b7d02f361f868a26.npz",
+      "mesh_sha256": "bf82061481ddae089b17b34dd2c5f08449f60ee2ecaef731353b83067dfb6134",
+      "vertex_count": 208,
+      "face_count": 104,
+      "normalized_extents": [
+        11.0468903,
+        24.6178017,
+        34.896862
+      ],
+      "horizontal_aspect": 2.2284825,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "fc042d9a11b44df0af7ff4acff9a8ff7",
+      "families": [
+        "wardrobe"
+      ],
+      "name": "Closet from Poly by Google",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/fc042d9a11b44df0af7ff4acff9a8ff7",
+      "author": "IronEqual",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:38.952251+00:00",
+      "source_sha256": "80ccf68bd002d1947aa0853a2974dea79774aba7c95734b314b615462cccc29f",
+      "source_bytes": 25580,
+      "mesh_path": "meshes/fc042d9a11b44df0af7ff4acff9a8ff7.npz",
+      "mesh_sha256": "a0dd7265877deafed0b0f274b7806ab02bb5cb7570f340cd198d883f963bfb2e",
+      "vertex_count": 542,
+      "face_count": 366,
+      "normalized_extents": [
+        3.642025,
+        0.839653,
+        3.426847
+      ],
+      "horizontal_aspect": 4.3375359,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "7838304674bf443cb7e2701e2126f65c",
+      "families": [
+        "wardrobe"
+      ],
+      "name": "wardrobe",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/7838304674bf443cb7e2701e2126f65c",
+      "author": "MadIsleGames",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.039719+00:00",
+      "source_sha256": "73c8a095458552109b60931ab69810bf18b8cc8c1d68985a324c0cff462f25fd",
+      "source_bytes": 127584,
+      "mesh_path": "meshes/7838304674bf443cb7e2701e2126f65c.npz",
+      "mesh_sha256": "37e1dfa7fb756757f37eafca7f7beb520a381afe60346f74eaf5176e3a87b163",
+      "vertex_count": 854,
+      "face_count": 514,
+      "normalized_extents": [
+        349.1659851,
+        236.4322662,
+        543.697998
+      ],
+      "horizontal_aspect": 1.4768119,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "1c19c1e1c38c4e1b84d6d420ac312cea",
+      "families": [
+        "wardrobe"
+      ],
+      "name": "Armario - Lowpoly",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/1c19c1e1c38c4e1b84d6d420ac312cea",
+      "author": "media_mas",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.059832+00:00",
+      "source_sha256": "f8107651130e0032e623607bdd0c21dd500318ce199d8d7a1854a745d63d8e69",
+      "source_bytes": 55216,
+      "mesh_path": "meshes/1c19c1e1c38c4e1b84d6d420ac312cea.npz",
+      "mesh_sha256": "fdd1008bad991d777b15ba9b301d27dc20f54d63035242935520274ea76041cf",
+      "vertex_count": 1218,
+      "face_count": 908,
+      "normalized_extents": [
+        21.8451862,
+        11.9509926,
+        38.6075172
+      ],
+      "horizontal_aspect": 1.8278972,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "a977729fff9d4bfdad487a59495436f5",
+      "families": [
+        "wardrobe"
+      ],
+      "name": "Wardrobe",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/a977729fff9d4bfdad487a59495436f5",
+      "author": "dylanheyes",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.094635+00:00",
+      "source_sha256": "93e4a5a81604a6c9cfd838e78ca83a4366c289b3e414f1184dbd1367c80fb531",
+      "source_bytes": 278372,
+      "mesh_path": "meshes/a977729fff9d4bfdad487a59495436f5.npz",
+      "mesh_sha256": "f09937e4daf4da997c557565f49bc6756fd55b4359d26a08073c2d356b83819d",
+      "vertex_count": 3198,
+      "face_count": 5876,
+      "normalized_extents": [
+        5.1084037,
+        2.2389328,
+        9.192564
+      ],
+      "horizontal_aspect": 2.2816243,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "43ca47cd6473442cbaed866fa3633278",
+      "families": [
+        "washing_machine"
+      ],
+      "name": "Washing Machine Top Load",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/43ca47cd6473442cbaed866fa3633278",
+      "author": "djangospel",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.864095+00:00",
+      "source_sha256": "2fe51b5d5ac8636e902e56d9e928edd97ebbba0161517183954de4bb681b5e13",
+      "source_bytes": 67824,
+      "mesh_path": "meshes/43ca47cd6473442cbaed866fa3633278.npz",
+      "mesh_sha256": "0545521386a998c8023f40b99296c4025aee4505297d12517e153880a707a6bc",
+      "vertex_count": 1544,
+      "face_count": 780,
+      "normalized_extents": [
+        1.0,
+        1.0000006,
+        1.396735
+      ],
+      "horizontal_aspect": 1.0000006,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    },
+    {
+      "uid": "056c4e7895834a4e8661c3e27b51583c",
+      "families": [
+        "washing_machine"
+      ],
+      "name": "Washer",
+      "provider": "objaverse-v1/sketchfab",
+      "source_uri": "https://sketchfab.com/3d-models/056c4e7895834a4e8661c3e27b51583c",
+      "author": "DimaSP",
+      "license": "by",
+      "retrieved_at": "2026-08-03T00:03:39.912234+00:00",
+      "source_sha256": "84f2758d24d469b9b2b0c05c772b6070194da1f434a571c34036ac19b3bfd665",
+      "source_bytes": 608200,
+      "mesh_path": "meshes/056c4e7895834a4e8661c3e27b51583c.npz",
+      "mesh_sha256": "90dbb4727072ef7f0afe6ef9faeb4c10799d280699dd34e4b23e019fee974993",
+      "vertex_count": 15455,
+      "face_count": 6198,
+      "normalized_extents": [
+        87.0007477,
+        90.7254639,
+        123.0665131
+      ],
+      "horizontal_aspect": 1.0428125,
+      "up_axis_source": "Y",
+      "up_axis_catalog": "Z"
+    }
+  ]
+}

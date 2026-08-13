@@ -1,4 +1,4 @@
-import { CheckCircle2, ShieldAlert, ShieldCheck, X } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, ChevronDown, ShieldAlert, ShieldCheck, X } from "lucide-react";
 
 import type { PlanGraph, QualificationClaim } from "../types";
 import type { ReviewPriority } from "../reviewPlanner";
@@ -37,10 +37,12 @@ export function QualityReview({
   if (!open) return null;
   const profile = graph.drawing_profile;
   const qualification = graph.qualification;
+  const reviewedReference = graph.pipeline?.demo_kind === "direct_visual_ground_truth";
   const eligible = Boolean(qualification?.production_release_eligible);
   const claims = qualification?.claims ?? [];
   const verification = graph.verification;
   const violations = verification?.violations ?? [];
+  const nextPriority = reviewPriorities[0];
 
   return (
     <div
@@ -51,130 +53,138 @@ export function QualityReview({
       <section className="quality-review" role="dialog" aria-modal="true" aria-labelledby="quality-title">
         <header>
           <div className={eligible ? "quality-icon eligible" : "quality-icon"}>
-            {eligible ? <ShieldCheck size={20} /> : <ShieldAlert size={20} />}
+            {eligible ? <ShieldCheck size={21} /> : <ShieldAlert size={21} />}
           </div>
           <div>
             <span>MODEL ASSURANCE</span>
-            <h2 id="quality-title">{eligible ? "Production gate passed" : "Review before release"}</h2>
+            <h2 id="quality-title">{reviewedReference ? "Reviewed reference" : eligible ? "Ready to release" : "Review before release"}</h2>
           </div>
-          <button onClick={onClose} aria-label="Close quality report"><X size={18} /></button>
+          <button onClick={onClose} aria-label="Close quality report"><X size={19} /></button>
         </header>
 
-        <div className="quality-summary">
-          <article>
-            <span>Drawing class</span>
-            <strong>{profile?.difficulty_class ?? qualification?.difficulty_class ?? "Unprofiled"}</strong>
-            <small>{profile ? `${Math.round(profile.complexity_score * 100)} / 100 complexity` : "No profiler record"}</small>
-          </article>
-          <article>
-            <span>Exact model pair</span>
-            <strong>{qualification?.exact_model_match ? "Matched" : "Not qualified"}</strong>
-            <small>{qualification?.benchmark_cohort || "No sealed cohort"}</small>
-          </article>
-          <article>
-            <span>Review queue</span>
-            <strong>{reviewCount}</strong>
-            <small>Editable elements requiring attention</small>
-          </article>
-        </div>
+        <div className="quality-body">
+          <section className="quality-intro">
+            <span>GUIDED REVIEW</span>
+            <h3>{reviewedReference ? "Checked directly against the source drawing." : eligible ? "Every required check is complete." : "Resolve what changes the model first."}</h3>
+            <p>
+              {reviewedReference
+                ? "Every entity in the demo contract was accepted by whole-sheet visual review, followed by a separate omission scan."
+                : profile?.reasons?.length
+                ? profile.reasons.join(". ")
+                : "Evidence, geometry, and BIM relationships are evaluated together."}
+            </p>
+          </section>
 
-        {profile?.reasons?.length ? (
-          <div className="quality-complexity">
-            <span>Complexity drivers</span>
-            <p>{profile.reasons.join(" · ")}</p>
-          </div>
-        ) : null}
-
-        {reviewPriorities.length ? (
-          <div className="quality-priorities">
-            <div className="quality-section-title">
-              <div><span>GUIDED REVIEW</span><h3>Highest consequence items first</h3></div>
-              <small>Risk combines evidence and BIM impact</small>
-            </div>
-            {reviewPriorities.slice(0, 5).map((priority) => (
-              <article key={`${priority.selection.collection}:${priority.selection.id}`}>
-                <span className={`priority-score ${priority.band}`}>{priority.percent}</span>
-                <div>
-                  <strong>{priority.selection.id}</strong>
-                  <small>{priority.reasons[0]?.label ?? "Review evidence and relationships"}</small>
-                </div>
-                <code>{priority.selection.collection.replaceAll("_", " ")}</code>
-                <button type="button" onClick={() => { onLocateEntities([priority.selection.id]); onClose(); }}>Locate</button>
-              </article>
-            ))}
-          </div>
-        ) : null}
-
-        <div className={`quality-integrity ${verification?.release_allowed ? "passed" : "blocked"}`}>
-          <div className="quality-section-title">
-            <div>
-              <span>DETERMINISTIC INTEGRITY</span>
-              <h3>{verification?.release_allowed ? "Geometry and topology checks passed" : "Model contradictions"}</h3>
-            </div>
-            <small>
-              {verification
-                ? `${verification.passed_invariants} / ${verification.checked_invariants} checks`
-                : "No certificate"}
-            </small>
-          </div>
-          {violations.length ? violations.map((violation, index) => (
-            <article key={`${violation.code}-${index}`}>
-              <code>{violation.code}</code>
-              <div>
-                <strong>{violation.message}</strong>
-                {violation.remediation ? <small>{violation.remediation}</small> : null}
+          {!reviewedReference && nextPriority ? (
+            <section className="quality-focus" aria-label="Next guided review item">
+              <div className="quality-focus-score">
+                <strong>{nextPriority.percent}</strong>
+                <span>impact</span>
               </div>
-              {violation.entity_ids.length ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onLocateEntities(violation.entity_ids);
-                    onClose();
-                  }}
-                >
-                  Locate
-                </button>
-              ) : null}
-            </article>
-          )) : (
-            <div className="quality-empty">
-              {verification ? "No deterministic contradictions were found." : "This graph has no verification certificate."}
+              <div>
+                <span>{nextPriority.selection.collection.replaceAll("_", " ")}</span>
+                <h3>{nextPriority.selection.id}</h3>
+                <p>{nextPriority.reasons[0]?.label ?? "Review evidence and model relationships."}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onLocateEntities([nextPriority.selection.id]);
+                  onClose();
+                }}
+              >
+                Locate <ArrowUpRight size={15} />
+              </button>
+            </section>
+          ) : !reviewedReference ? (
+            <div className="quality-empty">No element needs guided review.</div>
+          ) : null}
+
+          {!reviewedReference ? <details className="quality-disclosure">
+            <summary>
+              <div>
+                <span>MODEL CHECKS</span>
+                <strong>{verification?.release_allowed ? "No contradictions found" : "Contradictions to resolve"}</strong>
+              </div>
+              <small>
+                {verification
+                  ? `${verification.passed_invariants} of ${verification.checked_invariants} passed`
+                  : "No certificate"}
+              </small>
+              <ChevronDown size={17} />
+            </summary>
+            <div className="quality-detail-list">
+              {violations.length ? violations.map((violation, index) => (
+                <article key={`${violation.code}-${index}`}>
+                  <div>
+                    <span>{label(violation.code)}</span>
+                    <strong>{violation.message}</strong>
+                    {violation.remediation ? <small>{violation.remediation}</small> : null}
+                  </div>
+                  {violation.entity_ids.length ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onLocateEntities(violation.entity_ids);
+                        onClose();
+                      }}
+                    >
+                      Locate
+                    </button>
+                  ) : null}
+                </article>
+              )) : (
+                <div className="quality-empty">
+                  {verification ? "No deterministic contradictions were found." : "This graph has no verification certificate."}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </details> : null}
 
-        <div className="quality-claims">
-          <div className="quality-section-title">
-            <div><span>SEALED EVIDENCE</span><h3>What has actually been measured</h3></div>
-            <small>{qualification?.benchmark_sample_count ?? 0} samples</small>
-          </div>
-          {claims.length ? claims.map((claim) => (
-            <article key={claim.claim}>
-              <span className={`claim-state ${claim.status}`}>
-                {claim.status === "measured" ? <CheckCircle2 size={13} /> : <ShieldAlert size={13} />}
-                {label(claim.status)}
-              </span>
-              <strong>{label(claim.claim)}</strong>
-              <b>{metric(claim)}</b>
-              <small>{claim.metric || claim.note || "No sealed metric is available."}</small>
-            </article>
-          )) : (
-            <div className="quality-empty">This imported graph has no model qualification record.</div>
-          )}
-        </div>
+          {!reviewedReference ? <details className="quality-disclosure">
+            <summary>
+              <div>
+                <span>MEASURED EVIDENCE</span>
+                <strong>Qualification record</strong>
+              </div>
+              <small>{qualification?.benchmark_sample_count ?? 0} samples</small>
+              <ChevronDown size={17} />
+            </summary>
+            <div className="quality-evidence-list">
+              {claims.length ? claims.map((claim) => (
+                <article key={claim.claim}>
+                  <span className={`claim-state ${claim.status}`}>
+                    {claim.status === "measured" ? <CheckCircle2 size={13} /> : <ShieldAlert size={13} />}
+                    {label(claim.status)}
+                  </span>
+                  <div>
+                    <strong>{label(claim.claim)}</strong>
+                    <small>{claim.metric || claim.note || "No sealed metric is available."}</small>
+                  </div>
+                  <b>{metric(claim)}</b>
+                </article>
+              )) : (
+                <div className="quality-empty">This imported graph has no model qualification record.</div>
+              )}
+            </div>
+          </details> : null}
 
-        {!eligible && qualification?.review_reasons?.length ? (
-          <div className="quality-reasons">
-            <span>Release blockers</span>
-            <p>{qualification.review_reasons.map(label).join(" · ")}</p>
-          </div>
-        ) : null}
+          {!reviewedReference && !eligible && qualification?.review_reasons?.length ? (
+            <p className="quality-blockers">
+              <strong>Release is paused.</strong> {qualification.review_reasons.map(label).join(". ")}
+            </p>
+          ) : null}
+        </div>
 
         <footer>
-          <p>Review risk guides triage. Sealed benchmark metrics remain scoped to their measured BIM claim.</p>
-          <button onClick={() => { onReviewNext(); onClose(); }} disabled={!reviewCount}>
-            Start guided review <b>{reviewCount}</b>
-          </button>
+          <p>Each decision stays attached to the model history and exported correction record.</p>
+          {reviewedReference ? (
+            <button onClick={onClose}>Done</button>
+          ) : (
+            <button onClick={() => { onReviewNext(); onClose(); }} disabled={!reviewCount}>
+              Review next <b>{reviewCount}</b>
+            </button>
+          )}
         </footer>
       </section>
     </div>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 580 651" role="img" aria-labelledby="title description">
+  <title id="title">Dajoong</title>
+  <desc id="description">Dajoong building mark, redrawn from the approved source artwork with straight architectural edges.</desc>
+  <g stroke-linejoin="miter" shape-rendering="geometricPrecision">
+    <path fill="#0A2D39" d="M200 119 377 0 524 98 524 273 580 301 580 600 464 544 302 651 288 647 288 312 224 283 224 370 194 370 194 268 0 180 0 148 314 290 314 243 524 99 377 3 200 119Z"/>
+    <path fill="#007F98" d="M200 119 377 3 524 99 314 243 314 290 200 238Z"/>
+    <path fill="#007F98" d="M464 245 580 301 580 600 464 544Z"/>
+    <path fill="#007F98" d="M136 472 258 472 258 605 136 566Z"/>
+    <path fill="#F8F4EA" d="M32 196 194 268 194 370 224 370 224 283 288 312 288 614 258 605 258 443 137 443 137 366 32 366Z"/>
+    <path fill="#F8F4EA" d="M32 395 107 395 107 556 32 541Z"/>
+    <path fill="#F8F4EA" d="M464 544 580 600 313 648Z"/>
+    <path fill="#0A2D39" fill-rule="evenodd" d="M0 180 194 268 194 370 224 370 224 283 288 312 288 647 0 573Zm32 196v165l75 15V395H32Zm105-10v77h121v162l30 9V312l-64-29v87h-30V268L32 196v170Z"/>
+    <path fill="#007F98" d="M136 472 258 472 258 605 136 566Z"/>
+  </g>
+</svg>

@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path, PurePosixPath
 
 ALLOWED_SUFFIXES = (".onnx", ".json")
+RESERVED_FILENAMES = {"ACTIVE_RUNTIME.json", "__init__.py"}
 MAX_FILE_BYTES = 128 * 1024 * 1024
 MAX_TOTAL_BYTES = 256 * 1024 * 1024
 
@@ -31,6 +32,8 @@ def normalized_member(name: str) -> PurePosixPath:
         raise ValueError(f"Model bundle must contain a flat models directory: {name}")
     if not path.name.endswith(ALLOWED_SUFFIXES):
         raise ValueError(f"Unsupported model-bundle member: {name}")
+    if path.name in RESERVED_FILENAMES:
+        raise ValueError(f"Model bundle may not replace runtime registry files: {name}")
     return path
 
 

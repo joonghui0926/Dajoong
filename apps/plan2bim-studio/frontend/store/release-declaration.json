@@ -4,9 +4,9 @@
     "name": "Dajoong",
     "bundleId": "com.dajoong.plan2bim",
     "supportEmail": "jjoonghui@gmail.com",
-    "supportUrl": "https://studio.builiconstruction.com/support",
-    "privacyUrl": "https://studio.builiconstruction.com/privacy",
-    "accountDeletionUrl": "https://studio.builiconstruction.com/account-deletion"
+    "supportUrl": "https://studio.dajoongbim.com/support",
+    "privacyUrl": "https://studio.dajoongbim.com/privacy",
+    "accountDeletionUrl": "https://studio.dajoongbim.com/account-deletion"
   },
   "privacy": {
     "tracking": false,

@@ -16,6 +16,7 @@ class StudioJob(BaseModel):
     id: str
     status: str = "queued"
     source_name: str
+    source_key: str = ""
     project_id: str = "dajoong-project"
     output_dir: str
     owner_id: str = ""
@@ -26,7 +27,9 @@ class StudioJob(BaseModel):
     version: int = 0
     active_revision: str = ""
     graph_sha256: str = ""
+    lease_until: int = 0
     error: str = ""
+    submission: dict[str, Any] = Field(default_factory=dict)
     result: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -132,9 +135,10 @@ class JobStore:
         if not job_id.isalnum():
             raise KeyError(job_id)
         target = self.root / job_id / "job.json"
-        if not target.is_file():
-            raise KeyError(job_id)
-        return StudioJob.model_validate_json(target.read_text(encoding="utf-8"))
+        with self._lock:
+            if not target.is_file():
+                raise KeyError(job_id)
+            return StudioJob.model_validate_json(target.read_text(encoding="utf-8"))
 
     def list_for_identity(
         self,
@@ -148,18 +152,19 @@ class JobStore:
         if cursor and (not cursor.isdigit() or len(cursor) > 20):
             raise ValueError("invalid cursor")
         jobs: list[StudioJob] = []
-        for job_file in self.root.glob("*/job.json"):
-            try:
-                job = StudioJob.model_validate_json(job_file.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                continue
-            permitted = (
-                job.owner_id == owner_id
-                if scope == "personal"
-                else bool(organization_id and job.organization_id == organization_id)
-            )
-            if permitted:
-                jobs.append(job)
+        with self._lock:
+            for job_file in self.root.glob("*/job.json"):
+                try:
+                    job = StudioJob.model_validate_json(job_file.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                permitted = (
+                    job.owner_id == owner_id and not job.organization_id
+                    if scope == "personal"
+                    else bool(organization_id and job.organization_id == organization_id)
+                )
+                if permitted:
+                    jobs.append(job)
         jobs.sort(key=lambda item: (item.created_at, item.id), reverse=True)
         offset = int(cursor) if cursor else 0
         page = jobs[offset : offset + limit]
@@ -173,5 +178,9 @@ class JobStore:
         target = (self.root / job_id / name).resolve()
         if self.root not in target.parents:
             raise ValueError("invalid artifact path")
-        target.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        with self._lock:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            staging = target.with_suffix(f"{target.suffix}.tmp")
+            staging.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+            staging.replace(target)
         return target

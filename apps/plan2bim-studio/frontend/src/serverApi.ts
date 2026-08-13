@@ -1,4 +1,4 @@
-const PRODUCTION_STUDIO_API_ORIGIN = "https://studio-api.builiconstruction.com";
+const PRODUCTION_STUDIO_API_ORIGIN = "https://studio-api.dajoongbim.com";
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
 function normalizedOrigin(value: string): string {

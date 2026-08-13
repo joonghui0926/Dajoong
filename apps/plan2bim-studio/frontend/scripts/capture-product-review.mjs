@@ -72,9 +72,45 @@ async function captureProductPages(browser, baseUrl, directory, viewport, { incl
   const page = await context.newPage();
   const selectedRoutes = includeLanding ? routes : routes.filter(([name]) => name !== '01-landing');
   for (const [name, path] of selectedRoutes) {
-    await page.goto(`${baseUrl}${path}`, { waitUntil: 'networkidle', timeout: 30_000 });
-    await delay(path === '/studio' ? 1_200 : 250);
+    await page.goto(`${baseUrl}${path}`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await delay(path === '/studio' ? 2_500 : 500);
     await page.screenshot({ path: join(directory, `${name}.png`), fullPage: false });
+    if (path === '/') {
+      await page.screenshot({ path: join(directory, '01-landing-full.png'), fullPage: true });
+      const scrollMetrics = await page.evaluate(() => {
+        const scroller = document.querySelector('.landing-page');
+        return scroller
+          ? { scrollHeight: scroller.scrollHeight, clientHeight: scroller.clientHeight }
+          : { scrollHeight: document.documentElement.scrollHeight, clientHeight: window.innerHeight };
+      });
+      const maxScroll = Math.max(0, scrollMetrics.scrollHeight - scrollMetrics.clientHeight);
+      const step = Math.max(1, Math.round(scrollMetrics.clientHeight * 0.82));
+      let section = 2;
+      for (let y = step; y < maxScroll; y += step) {
+        await page.evaluate((top) => {
+          const scroller = document.querySelector('.landing-page');
+          if (scroller) scroller.scrollTo({ top, behavior: 'instant' });
+          else window.scrollTo({ top, behavior: 'instant' });
+        }, y);
+        await delay(150);
+        await page.screenshot({ path: join(directory, `01-landing-section-${String(section).padStart(2, '0')}.png`), fullPage: false });
+        section += 1;
+      }
+      if (maxScroll > 0) {
+        await page.evaluate((top) => {
+          const scroller = document.querySelector('.landing-page');
+          if (scroller) scroller.scrollTo({ top, behavior: 'instant' });
+          else window.scrollTo({ top, behavior: 'instant' });
+        }, maxScroll);
+        await delay(150);
+        await page.screenshot({ path: join(directory, `01-landing-section-${String(section).padStart(2, '0')}.png`), fullPage: false });
+      }
+      await page.evaluate(() => {
+        const scroller = document.querySelector('.landing-page');
+        if (scroller) scroller.scrollTo({ top: 0, behavior: 'instant' });
+        else window.scrollTo({ top: 0, behavior: 'instant' });
+      });
+    }
     if (path === '/studio') {
       await page.getByRole('button', { name: 'Convert', exact: true }).click();
       await delay(250);
@@ -87,7 +123,7 @@ async function captureProductPages(browser, baseUrl, directory, viewport, { incl
 async function captureSignIn(browser, baseUrl, directory, viewport) {
   const context = await createContext(browser, viewport);
   const page = await context.newPage();
-  await page.goto(`${baseUrl}/studio`, { waitUntil: 'networkidle', timeout: 30_000 });
+  await page.goto(`${baseUrl}/studio`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   await page.getByRole('button', { name: 'Continue with email' }).waitFor();
   await page.screenshot({ path: join(directory, '02-sign-in.png'), fullPage: false });
   await context.close();
@@ -101,7 +137,7 @@ try {
   if (!authOnly) {
     await withServer({ port: 4180 }, async (baseUrl) => {
       await captureProductPages(browser, baseUrl, webOutput, { width: 1440, height: 1000 }, { includeLanding: true });
-      await captureProductPages(browser, baseUrl, appOutput, { width: 440, height: 956 }, { includeLanding: false });
+      await captureProductPages(browser, baseUrl, appOutput, { width: 440, height: 956 }, { includeLanding: true });
     });
   }
   await withServer({ port: 4181, mode: 'capture' }, async (baseUrl) => {

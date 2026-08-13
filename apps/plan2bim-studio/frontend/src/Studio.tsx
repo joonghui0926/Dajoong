@@ -11,6 +11,7 @@ import {
   Columns2,
   DoorOpen,
   Download,
+  EllipsisVertical,
   FileInput,
   LogOut,
   LoaderCircle,
@@ -25,9 +26,12 @@ import {
   UserRound,
   Undo2,
   UploadCloud,
+  UsersRound,
+  WalletCards,
 } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
+import { AsyncFeatureLoading, RecoverableBoundary, reliableLazy } from "./components/AsyncFeatureBoundary";
 import { ModelTree } from "./components/ModelTree";
 import { ModelViewport, type ModelTransformCommit } from "./components/ModelViewport";
 import { PlanViewport } from "./components/PlanViewport";
@@ -39,8 +43,12 @@ import type { PatternMode } from "./components/PatternDialog";
 import { SelectionActionBar } from "./components/SelectionActionBar";
 import { SelectionFilterControl } from "./components/SelectionFilterControl";
 import { authConfigured, authFetch, signOut } from "./auth";
+import { completeTossReturn, loadCheckoutContext, type CheckoutContext } from "./billing";
 import { studioApiUrl } from "./serverApi";
+import { isBundledStudioSampleGraph, loadVerifiedStudioSample } from "./sampleIntegrity";
+import { DeferredJsonStorage } from "./deferredJsonStorage";
 import { AccountDialog } from "./components/AccountDialog";
+import { sendWorkspaceHeartbeat, type WorkspacePresence } from "./workspace";
 import { relatedSelectionGroups, type RelatedSelectionGroup } from "./bimRelations";
 import { canArrangeSelection, planArrangement } from "./arrangementPlanner";
 import {
@@ -84,7 +92,7 @@ import {
   toggleSelectionExclusion,
 } from "./selectionFilters";
 import {
-  findAvailableOpeningPlacement,
+  moveOpeningToPoint,
   toggleDoorHanding,
   toggleDoorSwingSide,
   validateOpeningPlacement,
@@ -133,14 +141,49 @@ import type {
 } from "./types";
 
 const RECENT_COMMANDS_KEY = "dajoong-studio-recent-commands-v1";
+const STUDIO_SESSION_KEY = "dajoong-plan2bim-studio-session-v1";
+export const STUDIO_SESSION_SCHEMA_VERSION = 4;
+const studioSessionStorage = new DeferredJsonStorage<unknown>(STUDIO_SESSION_KEY);
 
-const CommandPalette = lazy(async () => ({ default: (await import("./components/CommandPalette")).CommandPalette }));
-const ConversionDialog = lazy(async () => ({ default: (await import("./components/ConversionDialog")).ConversionDialog }));
-const ExactMoveDialog = lazy(async () => ({ default: (await import("./components/ExactMoveDialog")).ExactMoveDialog }));
-const ExactRotateDialog = lazy(async () => ({ default: (await import("./components/ExactRotateDialog")).ExactRotateDialog }));
-const FamilyBrowser = lazy(async () => ({ default: (await import("./components/FamilyBrowser")).FamilyBrowser }));
-const PatternDialog = lazy(async () => ({ default: (await import("./components/PatternDialog")).PatternDialog }));
-const QualityReview = lazy(async () => ({ default: (await import("./components/QualityReview")).QualityReview }));
+interface PersistedStudioSession {
+  schema_version?: number;
+  source?: PlanGraph;
+  graph?: PlanGraph;
+  operations?: CorrectionOperation[];
+  measurements?: Measurement[];
+  view_state?: {
+    hidden_collections?: CollectionName[];
+    locked_collections?: CollectionName[];
+    hidden_entities?: Selection[];
+    locked_entities?: Selection[];
+    isolated_entities?: Selection[];
+    selection_exclusions?: CollectionName[];
+    selection_sets?: BimSelectionSet[];
+  };
+}
+
+export function shouldRecoverStudioSession(payload: PersistedStudioSession) {
+  if (!payload.graph || !Array.isArray(payload.graph.walls) || !Array.isArray(payload.graph.rooms)) {
+    return false;
+  }
+  if (isBundledStudioSampleGraph(payload.graph) && (payload.operations?.length ?? 0) === 0) {
+    return false;
+  }
+  if (payload.schema_version === STUDIO_SESSION_SCHEMA_VERSION) return true;
+  // Preserve genuine unsynced work from older builds.  An untouched demo
+  // session is refreshed so converter-owned geometry and schema upgrades land.
+  return (payload.operations?.length ?? 0) > 0;
+}
+
+const CommandPalette = reliableLazy(async () => ({ default: (await import("./components/CommandPalette")).CommandPalette }));
+const ConversionDialog = reliableLazy(async () => ({ default: (await import("./components/ConversionDialog")).ConversionDialog }));
+const CheckoutDialog = reliableLazy(async () => ({ default: (await import("./components/CheckoutDialog")).CheckoutDialog }));
+const ExactMoveDialog = reliableLazy(async () => ({ default: (await import("./components/ExactMoveDialog")).ExactMoveDialog }));
+const ExactRotateDialog = reliableLazy(async () => ({ default: (await import("./components/ExactRotateDialog")).ExactRotateDialog }));
+const FamilyBrowser = reliableLazy(async () => ({ default: (await import("./components/FamilyBrowser")).FamilyBrowser }));
+const PatternDialog = reliableLazy(async () => ({ default: (await import("./components/PatternDialog")).PatternDialog }));
+const QualityReview = reliableLazy(async () => ({ default: (await import("./components/QualityReview")).QualityReview }));
+const CollaborationDialog = reliableLazy(async () => ({ default: (await import("./components/CollaborationDialog")).CollaborationDialog }));
 
 function loadRecentCommandIds(): string[] {
   try {
@@ -151,7 +194,7 @@ function loadRecentCommandIds(): string[] {
 }
 
 function StudioToolFallback() {
-  return <div className="studio-tool-loading" role="status"><span />Opening workspace tool</div>;
+  return <AsyncFeatureLoading label="Opening workspace tool" />;
 }
 
 export interface Snapshot {
@@ -507,19 +550,29 @@ export function studioSessionReducer(state: SessionState, action: SessionAction)
 }
 
 export function Studio() {
+  const routeParameters = new URLSearchParams(window.location.search);
+  const embeddedLandingDemo = routeParameters.get("embed") === "landing";
+  const requestedJobId = embeddedLandingDemo ? "" : routeParameters.get("job")?.trim() ?? "";
   const [session, rawDispatch] = useReducer(studioSessionReducer, initialSessionState);
   const [selections, setSelections] = useState<Selection[]>([]);
   const [levelId, setLevelId] = useState("L1");
   const [viewMode, setViewMode] = useState<ViewMode>("split");
   const [reviewOnly, setReviewOnly] = useState(false);
-  const [sourceUrl, setSourceUrl] = useState<string>("/sample/source.png");
+  const [sourceUrl, setSourceUrl] = useState<string>("/sample/source.webp");
   const [notice, setNotice] = useState("Loading reviewed sample…");
   const [conversionOpen, setConversionOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [collaborationOpen, setCollaborationOpen] = useState(
+    () => !embeddedLandingDemo && new URLSearchParams(window.location.search).has("invite"),
+  );
+  const [workspacePresence, setWorkspacePresence] = useState<WorkspacePresence[]>([]);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [checkoutContext, setCheckoutContext] = useState<CheckoutContext | null>(null);
   const [commandOpen, setCommandOpen] = useState(false);
   const [recentCommandIds, setRecentCommandIds] = useState(loadRecentCommandIds);
   const [jobId, setJobId] = useState("");
-  const [cloudSaveState, setCloudSaveState] = useState<"idle" | "saving" | "saved" | "conflict">("idle");
+  const [cloudSaveState, setCloudSaveState] = useState<"idle" | "saving" | "saved" | "conflict" | "error">("idle");
+  const [cloudSaveRetry, setCloudSaveRetry] = useState(0);
   const [snapIncrementM, setSnapIncrementM] = useState(0.05);
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
   const [familyBrowserOpen, setFamilyBrowserOpen] = useState(false);
@@ -542,6 +595,7 @@ export function Studio() {
   const [selectionExclusions, setSelectionExclusions] = useState<CollectionName[]>([]);
   const [contextMenu, setContextMenu] = useState<ElementContextMenuRequest | null>(null);
   const [rehostOpeningId, setRehostOpeningId] = useState<string | null>(null);
+  const [openingPlacementActive, setOpeningPlacementActive] = useState(false);
   const [bimClipboard, setBimClipboard] = useState<BimClipboardBundle | null>(null);
   const [selectionSets, setSelectionSets] = useState<BimSelectionSet[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -554,6 +608,30 @@ export function Studio() {
   } | null>(null);
   const graph = session.present?.graph ?? null;
   const operations = session.present?.operations ?? [];
+  const openCheckout = useCallback(() => {
+    void loadCheckoutContext()
+      .then(setCheckoutContext)
+      .catch((caught) => setNotice(caught instanceof Error ? caught.message : "Could not open checkout."));
+  }, []);
+  useEffect(() => {
+    const checkout = new URLSearchParams(window.location.search).get("checkout");
+    if (checkout === "stripe-success") {
+      setNotice("Payment confirmed. Your conversion credit is ready.");
+      if (window.opener) window.setTimeout(() => window.close(), 450);
+      return;
+    }
+    if (checkout === "cancelled" || checkout === "toss-failed") {
+      setNotice("Payment was not completed. Your drawing settings were kept.");
+      return;
+    }
+    void completeTossReturn()
+      .then((paid) => {
+        if (!paid) return;
+        setNotice("Payment confirmed. Your conversion credit is ready.");
+        if (window.opener) window.setTimeout(() => window.close(), 450);
+      })
+      .catch((caught) => setNotice(caught instanceof Error ? caught.message : "Payment confirmation failed."));
+  }, []);
   const historyEntries = useMemo(
     () => session.present
       ? buildHistoryTimeline(session.past, session.present, session.future)
@@ -561,6 +639,32 @@ export function Studio() {
     [session.future, session.past, session.present],
   );
   const selection = selections.at(-1) ?? null;
+  const selectedEntityReference = selection ? `${selection.collection}:${selection.id}` : "";
+  useEffect(() => {
+    if (embeddedLandingDemo || !jobId) {
+      setWorkspacePresence([]);
+      return;
+    }
+    let active = true;
+    const heartbeat = () => {
+      if (document.visibilityState === "hidden") return;
+      void sendWorkspaceHeartbeat(jobId, selectedEntityReference)
+        .then((response) => {
+          if (active) setWorkspacePresence(response.active);
+        })
+        .catch(() => {
+          if (active) setWorkspacePresence([]);
+        });
+    };
+    heartbeat();
+    const timer = window.setInterval(heartbeat, 30_000);
+    document.addEventListener("visibilitychange", heartbeat);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", heartbeat);
+    };
+  }, [embeddedLandingDemo, jobId, selectedEntityReference]);
   const toggleHistoryCollapsed = useCallback(() => {
     setHistoryCollapsed((current) => {
       const next = !current;
@@ -627,25 +731,36 @@ export function Studio() {
   }, [activeTool, placementFamily]);
 
   useEffect(() => {
-    const saved = localStorage.getItem("dajoong-plan2bim-studio-session-v1");
+    const controller = new AbortController();
+    if (requestedJobId) {
+      const loadRequestedJob = async () => {
+        let response = await authFetch(
+          studioApiUrl(`/api/jobs/${encodeURIComponent(requestedJobId)}/artifacts/corrected-graph?delivery=lazy`),
+          { signal: controller.signal },
+        );
+        if (!response.ok) {
+          response = await authFetch(
+            studioApiUrl(`/api/jobs/${encodeURIComponent(requestedJobId)}/artifacts/graph?delivery=lazy`),
+            { signal: controller.signal },
+          );
+        }
+        if (!response.ok) throw new Error(`conversion result returned ${response.status}`);
+        const payload = await response.json() as PlanGraph;
+        dispatch({ type: "load", graph: payload });
+        setLevelId(payload.levels[0]?.id ?? "L1");
+        setJobId(requestedJobId);
+        setNotice("Conversion opened in Dajoong Studio");
+      };
+      void loadRequestedJob().catch((error: Error) => {
+        if (error.name !== "AbortError") setNotice(`Could not open conversion · ${error.message}`);
+      });
+      return () => controller.abort();
+    }
+    const saved = embeddedLandingDemo ? null : localStorage.getItem(STUDIO_SESSION_KEY);
     if (saved) {
       try {
-        const payload = JSON.parse(saved) as {
-          source?: PlanGraph;
-          graph?: PlanGraph;
-          operations?: CorrectionOperation[];
-          measurements?: Measurement[];
-          view_state?: {
-            hidden_collections?: CollectionName[];
-            locked_collections?: CollectionName[];
-            hidden_entities?: Selection[];
-            locked_entities?: Selection[];
-            isolated_entities?: Selection[];
-            selection_exclusions?: CollectionName[];
-            selection_sets?: BimSelectionSet[];
-          };
-        };
-        if (payload.graph && Array.isArray(payload.graph.walls) && Array.isArray(payload.graph.rooms)) {
+        const payload = JSON.parse(saved) as PersistedStudioSession;
+        if (shouldRecoverStudioSession(payload) && payload.graph) {
           const recoveredGraph = structuredClone(payload.graph);
           if (!Array.isArray(recoveredGraph.dimensions)) {
             recoveredGraph.dimensions = payload.measurements ?? [];
@@ -669,45 +784,56 @@ export function Studio() {
           setSelectionSets(sanitizeSelectionSets(payload.view_state?.selection_sets, recoveredGraph));
           setLevelId(recoveredGraph.levels[0]?.id ?? "L1");
           setNotice(`Recovered local session · ${payload.operations?.length ?? 0} audited changes`);
-          return;
+          return () => controller.abort();
         }
+        localStorage.removeItem(STUDIO_SESSION_KEY);
       } catch {
-        localStorage.removeItem("dajoong-plan2bim-studio-session-v1");
+        localStorage.removeItem(STUDIO_SESSION_KEY);
       }
     }
-    fetch("/sample/03-plan-graph.json")
-      .then((response) => {
-        if (!response.ok) throw new Error(`sample returned ${response.status}`);
-        return response.json();
+    loadVerifiedStudioSample(controller.signal)
+      .then((sample) => {
+        dispatch({ type: "load", graph: sample.graph });
+        setLevelId(sample.graph.levels[0]?.id ?? "L1");
+        setSourceUrl(sample.sourceUrl);
+        setNotice(`Verified sample loaded · ${sample.sampleId}`);
       })
-      .then((payload: PlanGraph) => {
-        dispatch({ type: "load", graph: payload });
-        setLevelId(payload.levels[0]?.id ?? "L1");
-        setNotice("Sample loaded · select any plan or model element");
-      })
-      .catch((error: Error) => setNotice(`Import a PlanGraph to begin · ${error.message}`));
-  }, []);
+      .catch((error: Error) => {
+        if (error.name !== "AbortError") {
+          setNotice(`Import a PlanGraph to begin · ${error.message}`);
+        }
+      });
+    return () => controller.abort();
+  }, [embeddedLandingDemo, requestedJobId]);
 
   useEffect(() => {
-    if (!session.present) return;
-    localStorage.setItem(
-      "dajoong-plan2bim-studio-session-v1",
-      JSON.stringify({
-        source: session.source,
-        graph: session.present.graph,
-        operations: session.present.operations,
-        view_state: {
-          hidden_collections: hiddenCollections,
-          locked_collections: lockedCollections,
-          hidden_entities: hiddenEntities,
-          locked_entities: lockedEntities,
-          isolated_entities: isolatedEntities,
-          selection_exclusions: selectionExclusions,
-          selection_sets: selectionSets,
-        },
-      }),
-    );
-  }, [hiddenCollections, hiddenEntities, isolatedEntities, lockedCollections, lockedEntities, selectionExclusions, selectionSets, session.present, session.source]);
+    if (embeddedLandingDemo || !session.present) return;
+    if (isBundledStudioSampleGraph(session.present.graph) && session.present.operations.length === 0) {
+      localStorage.removeItem(STUDIO_SESSION_KEY);
+      return;
+    }
+    studioSessionStorage.schedule({
+      schema_version: STUDIO_SESSION_SCHEMA_VERSION,
+      source: session.source,
+      graph: session.present.graph,
+      operations: session.present.operations,
+      view_state: {
+        hidden_collections: hiddenCollections,
+        locked_collections: lockedCollections,
+        hidden_entities: hiddenEntities,
+        locked_entities: lockedEntities,
+        isolated_entities: isolatedEntities,
+        selection_exclusions: selectionExclusions,
+        selection_sets: selectionSets,
+      },
+    });
+  }, [embeddedLandingDemo, hiddenCollections, hiddenEntities, isolatedEntities, lockedCollections, lockedEntities, selectionExclusions, selectionSets, session.present, session.source]);
+
+  useEffect(() => {
+    if (embeddedLandingDemo) return;
+    window.addEventListener("pagehide", studioSessionStorage.flush);
+    return () => window.removeEventListener("pagehide", studioSessionStorage.flush);
+  }, [embeddedLandingDemo]);
 
   useEffect(() => {
     if (!jobId || !graph) return;
@@ -722,8 +848,8 @@ export function Studio() {
           const snapshotSha256 = await contentHash(snapshotGraph);
           if (snapshotSha256 === revision.graphSha256) return;
           setCloudSaveState("saving");
-          const { saveCloudRevision } = await import("./cloudRevision");
-          const saved = await saveCloudRevision(jobId, {
+          const { saveCloudRevisionWithRetry } = await import("./cloudRevision");
+          const saved = await saveCloudRevisionWithRetry(jobId, {
             expectedJobVersion: revision.version,
             expectedGraphSha256: revision.graphSha256,
             operations: snapshotOperations,
@@ -743,10 +869,13 @@ export function Studio() {
           };
           setCloudSaveState("saved");
         })
-        .catch(() => setCloudSaveState("idle"));
+        .catch(() => {
+          setCloudSaveState("error");
+          setNotice("Cloud save paused · local edits are safe · select Retry save when connected");
+        });
     }, 1_200);
     return () => window.clearTimeout(timer);
-  }, [graph, jobId, operations]);
+  }, [cloudSaveRetry, graph, jobId, operations]);
 
   useEffect(() => {
     if (!jobId || !levelId) return;
@@ -1271,22 +1400,33 @@ export function Studio() {
       setNotice("Doors and windows are locked · unlock them in the Model Browser");
       return;
     }
-    const wall = selection?.collection === "walls" ? graph.walls.find((item) => item.id === selection.id) : graph.walls.find((item) => item.level_id === levelId);
-    if (!wall) return setNotice("Select a host wall first");
-    const placement = findAvailableOpeningPlacement(wall, graph.openings, 0.9);
-    if (!placement.valid || !placement.changes) {
-      setNotice("No clear 900 mm span remains on this wall");
+    if (!graph.walls.some((wall) => wall.level_id === levelId)) {
+      setNotice("Add a wall on this level before placing an opening");
       return;
     }
+    setPlacementFamily(null);
+    setRehostOpeningId(null);
+    setActiveTool("select");
+    setViewMode("plan");
+    revealCollection("walls");
+    revealCollection("openings");
+    setOpeningPlacementActive(true);
+    setNotice("Move over a wall and click where the door should go");
+  };
+
+  const placeOpening = useCallback((wallId: string, point: [number, number]) => {
+    if (!graph || !openingPlacementActive) return;
+    const wall = graph.walls.find((item) => item.id === wallId && item.level_id === levelId);
+    if (!wall) return;
     const id = uniqueId(graph.openings, `${levelId}:opening:manual`);
-    const entity: OpeningEntity = {
+    const draft: OpeningEntity = {
       id,
       level_id: levelId,
       type: "door",
       wall_id: wall.id,
-      center_m: placement.changes.center_m,
-      x_m: placement.changes.x_m,
-      width_m: placement.changes.width_m,
+      center_m: point,
+      x_m: 0,
+      width_m: 0.9,
       height_m: 2.1,
       sill_height_m: 0,
       family_id: "generic-door",
@@ -1297,13 +1437,29 @@ export function Studio() {
       uncertainty: 0,
       review_state: "accepted",
     };
+    const placement = moveOpeningToPoint(draft, wall, graph.openings, point);
+    if (!placement.valid || !placement.changes) {
+      const message = placement.reason === "overlap"
+        ? `That span overlaps ${placement.conflictId ?? "another opening"}`
+        : placement.reason === "outside_wall"
+          ? "The wall is too short for a 900 mm door at that position"
+          : "This wall cannot host a 900 mm door";
+      setNotice(message);
+      return;
+    }
+    const entity: OpeningEntity = { ...draft, ...placement.changes };
     revealCollection("openings");
     dispatch({ type: "add", collection: "openings", entity });
     const nextSelection = { collection: "openings" as const, id };
     setIsolatedEntities((current) => current.length ? [...current, nextSelection] : current);
     setSelection(nextSelection);
-    setNotice("Door placed in the largest clear host-wall span");
-  };
+    setNotice("Door placed · click another wall or press Esc to finish");
+  }, [graph, levelId, openingPlacementActive, setSelection]);
+
+  const cancelOpeningPlacement = useCallback(() => {
+    setOpeningPlacementActive(false);
+    setNotice("Opening placement finished");
+  }, []);
 
   const addLevel = () => {
     if (!graph) return;
@@ -2753,21 +2909,36 @@ export function Studio() {
   }
 
   return (
-    <main className="studio-shell">
+    <main className={`studio-shell${embeddedLandingDemo ? " embedded-landing-studio" : ""}`}>
       <header className="app-header">
-        <a className="brand-lockup" href="/"><DajoongLogo compact /><div><strong>DAJOONG</strong><small>Plan2BIM Studio</small></div></a>
+        <a className="brand-lockup" href="/"><DajoongLogo compact /><div><strong>DAJOONG</strong><small>Studio</small></div></a>
         <div className="project-crumb"><span>{graph.project_id ?? "Untitled project"}</span><b>/</b><strong>{graph.sheet_id ?? "PlanGraph"}</strong></div>
         <div className="header-actions">
           {jobId ? (
-            <span className={`cloud-save-state ${cloudSaveState}`} title="Account project storage">
+            <button
+              type="button"
+              className={`cloud-save-state ${cloudSaveState}`}
+              title={cloudSaveState === "error" ? "Cloud save failed. Local edits are safe; select to retry." : "Account project storage"}
+              disabled={cloudSaveState !== "error"}
+              onClick={() => setCloudSaveRetry((value) => value + 1)}
+            >
               {cloudSaveState === "saving" ? <LoaderCircle className="spin" size={14} /> : null}
               {cloudSaveState === "saved" ? <Cloud size={14} /> : null}
-              {cloudSaveState === "conflict" ? <CloudAlert size={14} /> : null}
+              {cloudSaveState === "conflict" || cloudSaveState === "error" ? <CloudAlert size={14} /> : null}
               {cloudSaveState === "idle" ? <Cloud size={14} /> : null}
-              {cloudSaveState === "saving" ? "Saving" : cloudSaveState === "conflict" ? "Conflict" : "Account saved"}
-            </span>
+              {cloudSaveState === "saving" ? "Saving" : cloudSaveState === "conflict" ? "Conflict" : cloudSaveState === "error" ? "Retry save" : "Account saved"}
+            </button>
           ) : null}
-          <button className="header-button" onClick={() => setConversionOpen(true)}><UploadCloud size={15} /> Convert</button>
+          {!embeddedLandingDemo && workspacePresence.length ? (
+            <div className="presence-cluster" aria-label={`${workspacePresence.length} active collaborators`}>
+              {workspacePresence.slice(0, 3).map((person) => (
+                <button key={person.user_id} type="button" style={{ backgroundColor: person.color }} title={`${person.display_name}${person.active_entity ? ` · ${person.active_entity}` : ""}`} onClick={() => setCollaborationOpen(true)}>{person.display_name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</button>
+              ))}
+            </div>
+          ) : null}
+          {!embeddedLandingDemo ? <button className="header-button team-header-button" onClick={() => setCollaborationOpen(true)}><UsersRound size={15} /> Team{workspacePresence.length ? <span className="team-count">{workspacePresence.length}</span> : null}</button> : null}
+          <button className="header-button mobile-primary" onClick={() => setConversionOpen(true)}><UploadCloud size={15} /> Convert</button>
+          <button className="header-button" onClick={openCheckout}><WalletCards size={15} /> Credits</button>
           <button className="header-button" onClick={() => fileInput.current?.click()}><FileInput size={15} /> Open files</button>
           {jobId ? <button className="header-button" onClick={() => void downloadJobArtifact(jobId, "ifc")}><Download size={15} /> IFC</button> : null}
           {jobId ? <button className="header-button" onClick={() => void downloadJobArtifact(jobId, "glb")}><Download size={15} /> GLB</button> : null}
@@ -2775,16 +2946,41 @@ export function Studio() {
           <button className="header-button primary" onClick={() => void exportPatch()}><Save size={15} /> Export patch</button>
           {authConfigured ? <button className="header-button icon-only" onClick={() => setAccountOpen(true)} title="Account and privacy"><UserRound size={15} /></button> : null}
           {authConfigured ? <button className="header-button icon-only" onClick={() => void signOut()} title="Sign out"><LogOut size={15} /></button> : null}
+          <button
+            className="header-button mobile-more"
+            type="button"
+            aria-label="More project actions"
+            aria-expanded={mobileMenuOpen}
+            aria-haspopup="menu"
+            onClick={() => setMobileMenuOpen((current) => !current)}
+          ><EllipsisVertical size={18} /></button>
           <input ref={fileInput} hidden type="file" multiple accept=".json,image/*" onChange={(event) => void importFiles(event.target.files)} />
         </div>
+        {mobileMenuOpen ? (
+          <>
+            <button className="mobile-header-scrim" type="button" aria-label="Close project actions" onClick={() => setMobileMenuOpen(false)} />
+            <div className="mobile-header-menu" role="menu" aria-label="Project actions">
+              {!embeddedLandingDemo ? <button role="menuitem" onClick={() => { setMobileMenuOpen(false); setCollaborationOpen(true); }}><UsersRound size={17} />Team workspace</button> : null}
+              <button role="menuitem" onClick={() => { setMobileMenuOpen(false); openCheckout(); }}><WalletCards size={17} />Credits</button>
+              <button role="menuitem" onClick={() => { setMobileMenuOpen(false); fileInput.current?.click(); }}><FileInput size={17} />Open files</button>
+              <button role="menuitem" onClick={() => { setMobileMenuOpen(false); setQualityOpen(true); }}><Check size={17} />Model assurance</button>
+              {jobId ? <button role="menuitem" onClick={() => { setMobileMenuOpen(false); void downloadJobArtifact(jobId, "ifc"); }}><Download size={17} />Download IFC</button> : null}
+              {jobId ? <button role="menuitem" onClick={() => { setMobileMenuOpen(false); void downloadJobArtifact(jobId, "glb"); }}><Download size={17} />Download GLB</button> : null}
+              <button role="menuitem" onClick={() => { setMobileMenuOpen(false); downloadJson("corrected-plan-graph.json", graph); }}><Download size={17} />Download graph</button>
+              <button role="menuitem" onClick={() => { setMobileMenuOpen(false); void exportPatch(); }}><Save size={17} />Export patch</button>
+              {authConfigured ? <button role="menuitem" onClick={() => { setMobileMenuOpen(false); setAccountOpen(true); }}><UserRound size={17} />Account & privacy</button> : null}
+              {authConfigured ? <button role="menuitem" onClick={() => { setMobileMenuOpen(false); void signOut(); }}><LogOut size={17} />Sign out</button> : null}
+            </div>
+          </>
+        ) : null}
       </header>
       <nav className="command-bar" aria-label="Editing commands">
         <div className="command-group">
-          <button className={activeTool === "select" ? "command active" : "command"} onClick={() => setActiveTool("select")}><BoxSelect size={17} /><span>Select</span></button>
-          <button disabled={lockedCollections.includes("walls")} className={activeTool === "wall" ? "command active" : "command"} onClick={() => setActiveTool("wall")}><BrickWall size={17} /><span>Add wall</span></button>
-          <button disabled={lockedCollections.includes("openings")} className="command" onClick={addOpening}><DoorOpen size={17} /><span>Add opening</span></button>
-          <button disabled={lockedCollections.includes("fixtures")} className={activeTool === "object" ? "command active" : "command"} onClick={() => browseFamilies("insert")}><Box size={17} /><span>Add object</span></button>
-          <button disabled={lockedCollections.includes("dimensions")} className={activeTool === "measure" ? "command active" : "command"} onClick={() => setActiveTool("measure")}><Ruler size={17} /><span>Measure</span></button>
+          <button aria-label="Select" className={activeTool === "select" && !openingPlacementActive ? "command active" : "command"} onClick={() => { setOpeningPlacementActive(false); setActiveTool("select"); }}><BoxSelect size={17} /><span>Select</span></button>
+          <button aria-label="Add wall" disabled={lockedCollections.includes("walls")} className={activeTool === "wall" ? "command active" : "command"} onClick={() => setActiveTool("wall")}><BrickWall size={17} /><span>Add wall</span></button>
+          <button aria-label="Add opening" disabled={lockedCollections.includes("openings")} className={openingPlacementActive ? "command active" : "command"} onClick={addOpening}><DoorOpen size={17} /><span>Add opening</span></button>
+          <button aria-label="Add object" disabled={lockedCollections.includes("fixtures")} className={activeTool === "object" ? "command active" : "command"} onClick={() => browseFamilies("insert")}><Box size={17} /><span>Add object</span></button>
+          <button aria-label="Measure" disabled={lockedCollections.includes("dimensions")} className={activeTool === "measure" ? "command active" : "command"} onClick={() => setActiveTool("measure")}><Ruler size={17} /><span>Measure</span></button>
         </div>
         <div className="command-divider" />
         <button className="command-search" onClick={() => setCommandOpen(true)}><Search size={14} /><span>Find command</span><kbd>Ctrl K</kbd></button>
@@ -2819,12 +3015,12 @@ export function Studio() {
           }}
         />
         <button
-          className={graph.qualification?.production_release_eligible ? "quality-pill eligible" : "quality-pill"}
+          className={graph.qualification?.production_release_eligible || graph.pipeline?.demo_kind === "reviewed_full_editable_product_demo" ? "quality-pill eligible" : "quality-pill"}
           onClick={() => setQualityOpen(true)}
           title="Open model assurance and benchmark evidence"
         >
           <span>{graph.drawing_profile?.difficulty_class ?? "unprofiled"}</span>
-          <b>{graph.qualification?.production_release_eligible ? "QUALIFIED" : "REVIEW GATE"}</b>
+          <b>{graph.pipeline?.demo_kind === "reviewed_full_editable_product_demo" ? "DEMO REVIEWED" : graph.qualification?.production_release_eligible ? "QUALIFIED" : "REVIEW GATE"}</b>
         </button>
         <div className="level-select"><span>LEVEL</span><select value={levelId} onChange={(event) => { setLevelId(event.target.value); setSelection(null); }}>{graph.levels.map((level) => <option key={level.id} value={level.id}>{level.name}</option>)}</select><button onClick={addLevel} title="Add building level"><Plus size={14} /></button><ChevronDown size={14} /></div>
         <div className="view-switcher">
@@ -2832,7 +3028,7 @@ export function Studio() {
           <button className={viewMode === "split" ? "active" : ""} onClick={() => setViewMode("split")} title="Split view"><Columns2 size={16} /></button>
           <button className={viewMode === "model" ? "active" : ""} onClick={() => setViewMode("model")} title="3D only"><Rows2 size={16} /></button>
         </div>
-        <button className="review-next" onClick={reviewNext}><Check size={16} /><span>Review next</span><b>{queue.length}</b></button>
+        <button className="review-next" aria-label={`Review next (${queue.length} remaining)`} onClick={reviewNext}><Check size={16} /><span>Review next</span><b>{queue.length}</b></button>
       </nav>
       <div className="workspace">
         <ModelTree
@@ -2933,6 +3129,9 @@ export function Studio() {
               rehostOpeningId={rehostOpeningId}
               onPickOpeningHost={pickOpeningHost}
               onCancelOpeningRehost={cancelOpeningRehost}
+              placingOpening={openingPlacementActive}
+              onPlaceOpening={placeOpening}
+              onCancelOpeningPlacement={cancelOpeningPlacement}
             />
           ) : null}
           {viewMode !== "plan" ? (
@@ -3104,6 +3303,7 @@ export function Studio() {
           onSelectRelated={selectRelatedElements}
         />
       ) : null}
+      <RecoverableBoundary label="Workspace tool">
       {conversionOpen ? (
         <Suspense fallback={<StudioToolFallback />}>
           <ConversionDialog
@@ -3138,7 +3338,69 @@ export function Studio() {
           />
         </Suspense>
       ) : null}
+      {!embeddedLandingDemo && collaborationOpen ? (
+        <Suspense fallback={<StudioToolFallback />}>
+          <CollaborationDialog
+            jobId={jobId}
+            jobVersion={cloudRevisionRef.current.version}
+            selectedEntity={selectedEntityReference}
+            onClose={() => setCollaborationOpen(false)}
+            onWorkspaceChanged={(organizationName) => {
+              cloudRevisionRef.current = {
+                jobId: "",
+                version: 0,
+                graphSha256: "",
+                conflicted: false,
+              };
+              setJobId("");
+              setCloudSaveState("idle");
+              setWorkspacePresence([]);
+              setNotice(`Switched to ${organizationName} · open a company project to collaborate`);
+            }}
+            onEntityRequested={(entityReference) => {
+              const divider = entityReference.indexOf(":");
+              if (divider < 1 || !graph) return;
+              const collection = entityReference.slice(0, divider) as CollectionName;
+              const id = entityReference.slice(divider + 1);
+              const items = (graph as unknown as Record<string, BaseEntity[]>)[collection] ?? [];
+              if (!items.some((item) => String(item.id) === id)) return;
+              setSelection({ collection, id });
+              setCollaborationOpen(false);
+              setNotice(`Opened ${id} from the team comment`);
+            }}
+            onVersionRestored={(restoredGraph, revision) => {
+              dispatch({
+                type: "recover",
+                source: session.source ?? restoredGraph,
+                graph: restoredGraph,
+                operations: [],
+              });
+              cloudRevisionRef.current = {
+                jobId,
+                version: revision.version,
+                graphSha256: revision.graphSha256,
+                conflicted: false,
+              };
+              setCloudSaveState("saved");
+              setNotice(`Restored model version ${revision.version}`);
+            }}
+          />
+        </Suspense>
+      ) : null}
       {accountOpen ? <AccountDialog onClose={() => setAccountOpen(false)} /> : null}
+      {checkoutContext ? (
+        <Suspense fallback={<StudioToolFallback />}>
+          <CheckoutDialog
+            context={checkoutContext}
+            requiredUnits={1}
+            onClose={() => setCheckoutContext(null)}
+            onPaid={() => {
+              setCheckoutContext(null);
+              setNotice("Payment confirmed. Your conversion credit is ready.");
+            }}
+          />
+        </Suspense>
+      ) : null}
       {exactMoveOpen ? (
         <Suspense fallback={<StudioToolFallback />}>
           <ExactMoveDialog open count={selections.length} onClose={() => setExactMoveOpen(false)} onApply={applyExactTranslation} />
@@ -3203,6 +3465,7 @@ export function Studio() {
           />
         </Suspense>
       ) : null}
+      </RecoverableBoundary>
       {discardConfirmOpen ? (
         <div
           className="dialog-backdrop"

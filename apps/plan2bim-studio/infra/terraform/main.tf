@@ -149,6 +149,39 @@ resource "aws_dynamodb_table" "jobs" {
   }
 }
 
+resource "aws_dynamodb_table" "billing" {
+  name                        = "${local.name}-billing"
+  billing_mode                = "PAY_PER_REQUEST"
+  hash_key                    = "record_id"
+  deletion_protection_enabled = var.environment == "production"
+  attribute {
+    name = "record_id"
+    type = "S"
+  }
+  point_in_time_recovery { enabled = true }
+}
+
+resource "aws_dynamodb_table" "collaboration" {
+  name                        = "${local.name}-collaboration"
+  billing_mode                = "PAY_PER_REQUEST"
+  hash_key                    = "pk"
+  range_key                   = "sk"
+  deletion_protection_enabled = var.environment == "production"
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+  attribute {
+    name = "sk"
+    type = "S"
+  }
+  point_in_time_recovery { enabled = true }
+  ttl {
+    attribute_name = "expires_at"
+    enabled        = true
+  }
+}
+
 resource "aws_sqs_queue" "dead_letter" {
   name                      = "${local.name}-jobs-dlq"
   message_retention_seconds = 1209600
@@ -157,7 +190,7 @@ resource "aws_sqs_queue" "dead_letter" {
 
 resource "aws_sqs_queue" "jobs" {
   name                       = "${local.name}-jobs"
-  visibility_timeout_seconds = 900
+  visibility_timeout_seconds = var.job_visibility_seconds
   message_retention_seconds  = 345600
   receive_wait_time_seconds  = 20
   sqs_managed_sse_enabled    = true
@@ -249,8 +282,27 @@ data "aws_iam_policy_document" "runtime" {
     resources = [aws_cognito_user_pool.users.arn]
   }
   statement {
-    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"]
-    resources = [aws_dynamodb_table.jobs.arn]
+    actions = ["dynamodb:GetItem", "dynamodb:BatchGetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"]
+    resources = [
+      aws_dynamodb_table.jobs.arn,
+      aws_dynamodb_table.billing.arn,
+      aws_dynamodb_table.collaboration.arn,
+    ]
+  }
+  statement {
+    actions   = ["dynamodb:TransactWriteItems"]
+    resources = [aws_dynamodb_table.billing.arn, aws_dynamodb_table.collaboration.arn]
+  }
+  statement {
+    actions   = ["dynamodb:Query"]
+    resources = [aws_dynamodb_table.collaboration.arn]
+  }
+  dynamic "statement" {
+    for_each = var.invite_identity_arn == "" ? [] : [var.invite_identity_arn]
+    content {
+      actions   = ["ses:SendEmail"]
+      resources = [statement.value]
+    }
   }
   statement {
     actions = ["dynamodb:Query"]
@@ -264,7 +316,12 @@ data "aws_iam_policy_document" "runtime" {
     resources = [aws_sqs_queue.jobs.arn]
   }
   dynamic "statement" {
-    for_each = var.origin_secret_arn == "" ? [] : [var.origin_secret_arn]
+    for_each = toset(compact([
+      var.origin_secret_arn,
+      var.stripe_secret_key_arn,
+      var.stripe_webhook_secret_arn,
+      var.toss_secret_key_arn,
+    ]))
     content {
       actions   = ["secretsmanager:GetSecretValue"]
       resources = [statement.value]
@@ -330,8 +387,11 @@ resource "aws_apprunner_service" "api" {
         port = "8042"
         runtime_environment_variables = {
           DAJOONG_RUNTIME                 = "aws"
+          DAJOONG_ENVIRONMENT             = var.environment
           DAJOONG_ARTIFACT_BUCKET         = aws_s3_bucket.artifacts.id
           DAJOONG_JOB_TABLE               = aws_dynamodb_table.jobs.name
+          DAJOONG_BILLING_TABLE           = aws_dynamodb_table.billing.name
+          DAJOONG_COLLABORATION_TABLE     = aws_dynamodb_table.collaboration.name
           DAJOONG_JOB_QUEUE_URL           = aws_sqs_queue.jobs.url
           DAJOONG_STUDIO_ORIGINS          = var.cors_origins
           DAJOONG_REQUIRE_AUTH            = "true"
@@ -342,11 +402,24 @@ resource "aws_apprunner_service" "api" {
           DAJOONG_ORGANIZATION_INDEX_NAME = "organization-id-index"
           DAJOONG_ARTIFACT_RETENTION_DAYS = tostring(var.artifact_retention_days)
           DAJOONG_MAX_UPLOAD_BYTES        = "104857600"
+          DAJOONG_BILLING_ENFORCE         = "true"
+          DAJOONG_JOB_VISIBILITY_SECONDS  = tostring(var.job_visibility_seconds)
+          DAJOONG_PRICE_USD_CENTS         = tostring(var.price_usd_cents)
+          DAJOONG_PRICE_KRW               = tostring(var.price_krw)
+          DAJOONG_MONTHLY_PRICE_USD_CENTS = tostring(var.monthly_price_usd_cents)
+          DAJOONG_MONTHLY_PRICE_KRW       = tostring(var.monthly_price_krw)
+          DAJOONG_CHECKOUT_RETURN_ORIGIN  = var.checkout_return_origin
+          DAJOONG_TOSS_CLIENT_KEY         = var.toss_client_key
+          DAJOONG_APP_URL                 = var.app_url
+          DAJOONG_INVITE_FROM_EMAIL       = var.invite_from_email
           AWS_REGION                      = var.aws_region
         }
-        runtime_environment_secrets = var.origin_secret_arn == "" ? {} : {
-          DAJOONG_ORIGIN_VERIFY_SECRET = var.origin_secret_arn
-        }
+        runtime_environment_secrets = merge(
+          var.origin_secret_arn == "" ? {} : { DAJOONG_ORIGIN_VERIFY_SECRET = var.origin_secret_arn },
+          var.stripe_secret_key_arn == "" ? {} : { DAJOONG_STRIPE_SECRET_KEY = var.stripe_secret_key_arn },
+          var.stripe_webhook_secret_arn == "" ? {} : { DAJOONG_STRIPE_WEBHOOK_SECRET = var.stripe_webhook_secret_arn },
+          var.toss_secret_key_arn == "" ? {} : { DAJOONG_TOSS_SECRET_KEY = var.toss_secret_key_arn },
+        )
       }
     }
   }
@@ -433,9 +506,13 @@ resource "aws_ecs_task_definition" "worker" {
     command   = ["python", "-m", "buili_plan2bim_studio.aws_worker"]
     environment = [
       { name = "DAJOONG_RUNTIME", value = "aws" },
+      { name = "DAJOONG_ENVIRONMENT", value = var.environment },
       { name = "DAJOONG_ARTIFACT_BUCKET", value = aws_s3_bucket.artifacts.id },
       { name = "DAJOONG_JOB_TABLE", value = aws_dynamodb_table.jobs.name },
       { name = "DAJOONG_JOB_QUEUE_URL", value = aws_sqs_queue.jobs.url },
+      { name = "DAJOONG_JOB_VISIBILITY_SECONDS", value = tostring(var.job_visibility_seconds) },
+      { name = "DAJOONG_SEMANTIC_MODEL_S3_KEY", value = var.semantic_model_s3_key },
+      { name = "DAJOONG_SEMANTIC_MODEL_SHA256", value = var.semantic_model_sha256 },
       { name = "DAJOONG_USER_POOL_ID", value = aws_cognito_user_pool.users.id },
       { name = "DAJOONG_ARTIFACT_RETENTION_DAYS", value = tostring(var.artifact_retention_days) },
       { name = "AWS_REGION", value = var.aws_region },
@@ -488,7 +565,17 @@ resource "aws_appautoscaling_policy" "worker_out" {
     metric_aggregation_type = "Maximum"
     step_adjustment {
       metric_interval_lower_bound = 0
+      metric_interval_upper_bound = 4
       scaling_adjustment          = 1
+    }
+    step_adjustment {
+      metric_interval_lower_bound = 4
+      metric_interval_upper_bound = 19
+      scaling_adjustment          = 4
+    }
+    step_adjustment {
+      metric_interval_lower_bound = 19
+      scaling_adjustment          = 10
     }
   }
 }
@@ -558,9 +645,41 @@ resource "aws_cloudwatch_metric_alarm" "worker_in" {
   }
 }
 
+resource "aws_cloudwatch_metric_alarm" "dead_letter_has_messages" {
+  alarm_name          = "${local.name}-dead-letter-has-messages"
+  alarm_description   = "A conversion exhausted its retries and requires inspection."
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  namespace           = "AWS/SQS"
+  period              = 60
+  statistic           = "Maximum"
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+  dimensions          = { QueueName = aws_sqs_queue.dead_letter.name }
+  alarm_actions       = compact([var.alarm_sns_topic_arn])
+  ok_actions          = compact([var.alarm_sns_topic_arn])
+}
+
+resource "aws_cloudwatch_metric_alarm" "queue_age" {
+  alarm_name          = "${local.name}-queue-age"
+  alarm_description   = "The oldest conversion has waited longer than the service objective."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "ApproximateAgeOfOldestMessage"
+  namespace           = "AWS/SQS"
+  period              = 60
+  statistic           = "Maximum"
+  threshold           = var.job_queue_age_alarm_seconds
+  treat_missing_data  = "notBreaching"
+  dimensions          = { QueueName = aws_sqs_queue.jobs.name }
+  alarm_actions       = compact([var.alarm_sns_topic_arn])
+  ok_actions          = compact([var.alarm_sns_topic_arn])
+}
+
 resource "aws_apprunner_auto_scaling_configuration_version" "api" {
   auto_scaling_configuration_name = "${local.name}-api"
   max_concurrency                 = 80
-  max_size                        = 5
+  max_size                        = var.api_max_instances
   min_size                        = 1
 }

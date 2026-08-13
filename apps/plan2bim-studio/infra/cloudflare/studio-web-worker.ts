@@ -2,10 +2,10 @@ interface Env {
   ASSETS: Fetcher;
 }
 
-const MARKETING_HOST = 'builiconstruction.com';
-const WWW_HOST = 'www.builiconstruction.com';
-const STUDIO_HOST = 'studio.builiconstruction.com';
-const APP_LINK_HOST = 'app.builiconstruction.com';
+const MARKETING_HOST = 'dajoongbim.com';
+const WWW_HOST = 'www.dajoongbim.com';
+const STUDIO_HOST = 'studio.dajoongbim.com';
+const APP_LINK_HOST = 'app.dajoongbim.com';
 const ALLOWED_HOSTS = new Set([MARKETING_HOST, WWW_HOST, STUDIO_HOST, APP_LINK_HOST]);
 const ASSOCIATION_PATHS = new Set(['/.well-known/apple-app-site-association', '/.well-known/assetlinks.json']);
 
@@ -17,7 +17,7 @@ function secure(response: Response, requestUrl: URL): Response {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    "connect-src 'self' https://studio-api.builiconstruction.com https://*.amazoncognito.com https://*.amazonaws.com",
+    "connect-src 'self' https://studio-api.dajoongbim.com https://*.amazoncognito.com https://*.amazonaws.com",
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",

@@ -34,3 +34,22 @@ export async function saveCloudRevision(jobId: string, payload: CloudRevisionPay
     jobVersion: saved.job_version,
   };
 }
+
+export async function saveCloudRevisionWithRetry(
+  jobId: string,
+  payload: CloudRevisionPayload,
+  attempts = 3,
+) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await saveCloudRevision(jobId, payload);
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 < attempts) {
+        await new Promise((resolve) => window.setTimeout(resolve, 500 * (2 ** attempt)));
+      }
+    }
+  }
+  throw lastError;
+}

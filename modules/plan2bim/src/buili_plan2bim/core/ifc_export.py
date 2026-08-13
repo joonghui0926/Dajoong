@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .asset_catalog import resolved_fixture_geometry
 from .cad_families import (
     approved_family_asset_sha256,
     parametric_family_parts,
@@ -1000,6 +1001,7 @@ class IfcModelBuilder:
             )
             footprint = fixture.get("footprint_local_m") or []
             geometry_status = str(fixture.get("geometry_status") or "semantic_marker")
+            resolved_geometry = resolved_fixture_geometry(self.graph, fixture)
             asset_sha256 = str(fixture.get("asset_sha256") or "")
             if geometry_status == "approved_family":
                 expected_asset_sha256 = approved_family_asset_sha256(kind)
@@ -1026,10 +1028,10 @@ class IfcModelBuilder:
                 if str(fixture["asset_license"]).lower() not in {"cc0", "by"}:
                     raise ValueError(f"Fixture {fixture_id!r} uses a non-allowlisted asset license")
                 representation = self._mesh_representation(
-                    list(fixture.get("mesh_vertices") or []),
-                    list(fixture.get("mesh_faces") or []),
+                    list(resolved_geometry.get("mesh_vertices") or []),
+                    list(resolved_geometry.get("mesh_faces") or []),
                     discipline,
-                    list(fixture.get("mesh_face_colors") or []),
+                    list(resolved_geometry.get("mesh_face_colors") or []),
                 )
             elif geometry_status == "native_bim_parametric":
                 if not fixture.get("native_generator") or not fixture.get("asset_mesh_sha256"):
@@ -1037,10 +1039,10 @@ class IfcModelBuilder:
                         f"Fixture {fixture_id!r} is missing native BIM generator provenance"
                     )
                 representation = self._mesh_representation(
-                    list(fixture.get("mesh_vertices") or []),
-                    list(fixture.get("mesh_faces") or []),
+                    list(resolved_geometry.get("mesh_vertices") or []),
+                    list(resolved_geometry.get("mesh_faces") or []),
                     discipline,
-                    list(fixture.get("mesh_face_colors") or []),
+                    list(resolved_geometry.get("mesh_face_colors") or []),
                 )
             else:
                 representation = (
@@ -1097,7 +1099,7 @@ class IfcModelBuilder:
                     "NativeGenerator": fixture.get("native_generator", ""),
                     "AssetAxisSwapped": fixture.get("asset_axis_swapped", ""),
                     "SemanticResolution": fixture.get("semantic_resolution", ""),
-                    "MeshVertexCount": len(fixture.get("mesh_vertices") or []),
+                    "MeshVertexCount": len(resolved_geometry.get("mesh_vertices") or []),
                     "MeshFaceCount": len(fixture.get("mesh_faces") or []),
                     "ColorEncoding": (
                         "IfcIndexedColourMap"

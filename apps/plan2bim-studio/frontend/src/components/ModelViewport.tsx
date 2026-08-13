@@ -4,8 +4,12 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 
+import { loadVisibleFamilyAssets } from "../assetDelivery";
 import { selectionKey } from "../editorViewState";
+import { createFixtureGeometry } from "../fixtureGeometry";
 import { graphBounds } from "../graph";
+import { canRestoreModelCamera, type ModelCameraSnapshot, type Vector3Tuple } from "../modelCameraState";
+import { exceedsDragThreshold } from "../pointerGesture";
 import type {
   CollectionName,
   FixtureEntity,
@@ -65,13 +69,20 @@ type TransformMode = "translate" | "rotate";
 
 export function ModelViewport({ graph, levelId, selections = [], onSelect, onOpenContextMenu, hiddenCollections = [], lockedCollections = [], hiddenEntities = [], lockedEntities = [], isolatedEntities = [], selectionExclusions = [], onIsolateSelection, onExitIsolation, snapIncrementM = 0.05, onTransformCommit, minimal = false }: ModelViewportProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const cameraStateRef = useRef<ModelCameraSnapshot | null>(null);
   const [viewPreset, setViewPreset] = useState<ViewPreset>("iso");
+  const [viewRevision, setViewRevision] = useState(0);
   const [sectionEnabled, setSectionEnabled] = useState(false);
   const [sectionHeight, setSectionHeight] = useState(1.45);
   const [transformMode, setTransformMode] = useState<TransformMode>("translate");
   const [transformReadout, setTransformReadout] = useState("");
+  const [remoteAssets, setRemoteAssets] = useState<PlanGraph["family_assets"]>({});
   const selection = selections.at(-1) ?? null;
   const isolationActive = isolatedEntities.length > 0;
+  const activateViewPreset = (preset: ViewPreset) => {
+    setViewPreset(preset);
+    setViewRevision((current) => current + 1);
+  };
   const transformable = Boolean(
     selections.length > 0
     && selections.every((item) =>
@@ -94,6 +105,16 @@ export function ModelViewport({ graph, levelId, selections = [], onSelect, onOpe
     () => Math.max(2.4, ...graph.walls.filter((item) => item.level_id === levelId).map((item) => item.height_m)),
     [graph, levelId],
   );
+
+  useEffect(() => {
+    let active = true;
+    void loadVisibleFamilyAssets(graph, levelId).then((loaded) => {
+      if (active && Object.keys(loaded).length) {
+        setRemoteAssets((current) => ({ ...current, ...loaded }));
+      }
+    });
+    return () => { active = false; };
+  }, [graph, levelId]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -222,7 +243,10 @@ export function ModelViewport({ graph, levelId, selections = [], onSelect, onOpe
     for (const fixture of graph.fixtures.filter((item) => item.level_id === levelId)) {
       if (!selectedOnly("fixtures", fixture.id)) continue;
       const selected = isSelected("fixtures", fixture.id);
-      const group = createFixture(fixture, selected, material);
+      const sharedGeometry = fixture.geometry_ref
+        ? graph.family_assets?.[fixture.geometry_ref] ?? remoteAssets?.[fixture.geometry_ref]
+        : undefined;
+      const group = createFixtureGeometry(fixture, selected, material, sharedGeometry);
       const selectionRef: Selection = { collection: "fixtures", id: fixture.id };
       mark(group, selectionRef);
       registerTransformTarget(selectionRef, group);
@@ -261,10 +285,16 @@ export function ModelViewport({ graph, levelId, selections = [], onSelect, onOpe
     grid.position.set(center.x, -0.01, center.z);
     scene.add(grid);
     const span = Math.max(width, depth);
-    if (viewPreset === "top") camera.position.set(center.x, span * 1.45, center.z + 0.001);
-    else if (viewPreset === "front") camera.position.set(center.x, span * 0.38, center.z + span * 1.35);
-    else camera.position.set(center.x + span * 0.78, span * 0.72, center.z + span * 0.92);
-    controls.target.set(center.x, 0.8, center.z);
+    const savedCamera = cameraStateRef.current;
+    if (canRestoreModelCamera(savedCamera, levelId, viewRevision)) {
+      camera.position.fromArray(savedCamera.position);
+      controls.target.fromArray(savedCamera.target);
+    } else {
+      if (viewPreset === "top") camera.position.set(center.x, span * 1.45, center.z + 0.001);
+      else if (viewPreset === "front") camera.position.set(center.x, span * 0.38, center.z + span * 1.35);
+      else camera.position.set(center.x + span * 0.78, span * 0.72, center.z + span * 0.92);
+      controls.target.set(center.x, 0.8, center.z);
+    }
     controls.update();
 
     let transformControls: TransformControls | null = null;
@@ -274,6 +304,7 @@ export function ModelViewport({ graph, levelId, selections = [], onSelect, onOpe
     let transformStartRotation = 0;
     let transformDragged = false;
     let suppressNextClick = false;
+    let suppressNextContextMenu = false;
     if (transformable) {
       const selectedTargets = selections
         .map((item) => transformTargets.get(selectionKey(item)) ?? null)
@@ -371,6 +402,35 @@ export function ModelViewport({ graph, levelId, selections = [], onSelect, onOpe
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
+    let pointerGesture: { id: number; button: number; startX: number; startY: number; dragged: boolean } | null = null;
+    const pointerDown = (event: PointerEvent) => {
+      pointerGesture = {
+        id: event.pointerId,
+        button: event.button,
+        startX: event.clientX,
+        startY: event.clientY,
+        dragged: false,
+      };
+    };
+    const pointerMove = (event: PointerEvent) => {
+      if (!pointerGesture || pointerGesture.id !== event.pointerId || pointerGesture.dragged) return;
+      pointerGesture.dragged = exceedsDragThreshold(
+        { x: pointerGesture.startX, y: pointerGesture.startY },
+        { x: event.clientX, y: event.clientY },
+      );
+    };
+    const pointerUp = (event: PointerEvent) => {
+      if (!pointerGesture || pointerGesture.id !== event.pointerId) return;
+      pointerMove(event);
+      if (pointerGesture.dragged) {
+        if (pointerGesture.button === 0) suppressNextClick = true;
+        if (pointerGesture.button === 2) suppressNextContextMenu = true;
+      }
+      pointerGesture = null;
+    };
+    const pointerCancel = () => {
+      pointerGesture = null;
+    };
     const selectionExclusionSet = new Set(selectionExclusions);
     const selectionAt = (event: MouseEvent): Selection | null => {
       const rect = renderer.domElement.getBoundingClientRect();
@@ -392,11 +452,20 @@ export function ModelViewport({ graph, levelId, selections = [], onSelect, onOpe
       if (next) onSelect(next, event.ctrlKey || event.metaKey);
     };
     const contextMenu = (event: MouseEvent) => {
+      if (suppressNextContextMenu) {
+        suppressNextContextMenu = false;
+        event.preventDefault();
+        return;
+      }
       const next = selectionAt(event);
       if (!next || !onOpenContextMenu) return;
       event.preventDefault();
       onOpenContextMenu(next, event.clientX, event.clientY);
     };
+    renderer.domElement.addEventListener("pointerdown", pointerDown);
+    renderer.domElement.addEventListener("pointermove", pointerMove);
+    renderer.domElement.addEventListener("pointerup", pointerUp);
+    renderer.domElement.addEventListener("pointercancel", pointerCancel);
     renderer.domElement.addEventListener("click", click);
     renderer.domElement.addEventListener("contextmenu", contextMenu);
 
@@ -417,8 +486,18 @@ export function ModelViewport({ graph, levelId, selections = [], onSelect, onOpe
     };
     animate();
     return () => {
+      cameraStateRef.current = {
+        levelId,
+        viewRevision,
+        position: camera.position.toArray() as Vector3Tuple,
+        target: controls.target.toArray() as Vector3Tuple,
+      };
       cancelAnimationFrame(frame);
       observer.disconnect();
+      renderer.domElement.removeEventListener("pointerdown", pointerDown);
+      renderer.domElement.removeEventListener("pointermove", pointerMove);
+      renderer.domElement.removeEventListener("pointerup", pointerUp);
+      renderer.domElement.removeEventListener("pointercancel", pointerCancel);
       renderer.domElement.removeEventListener("click", click);
       renderer.domElement.removeEventListener("contextmenu", contextMenu);
       controls.dispose();
@@ -437,7 +516,7 @@ export function ModelViewport({ graph, levelId, selections = [], onSelect, onOpe
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [graph, hiddenCollections, hiddenEntities, isolatedEntities, levelId, onOpenContextMenu, onSelect, onTransformCommit, sectionEnabled, sectionHeight, selectionExclusions, selections, snapIncrementM, transformMode, transformable, viewPreset]);
+  }, [graph, hiddenCollections, hiddenEntities, isolatedEntities, levelId, onOpenContextMenu, onSelect, onTransformCommit, remoteAssets, sectionEnabled, sectionHeight, selectionExclusions, selections, snapIncrementM, transformMode, transformable, viewPreset, viewRevision]);
 
   return (
     <div className="viewport model-viewport" ref={hostRef} aria-label="3D model editor">
@@ -445,9 +524,9 @@ export function ModelViewport({ graph, levelId, selections = [], onSelect, onOpe
       {!minimal ? (
         <div className={selections.length ? "model-tools with-selection" : "model-tools"} aria-label="3D view tools">
           <div className="view-cube">
-            <button className={viewPreset === "top" ? "active" : ""} onClick={() => setViewPreset("top")}>TOP</button>
-            <button className={viewPreset === "iso" ? "active" : ""} onClick={() => setViewPreset("iso")}>ISO</button>
-            <button className={viewPreset === "front" ? "active" : ""} onClick={() => setViewPreset("front")}>FRONT</button>
+            <button className={viewPreset === "top" ? "active" : ""} onClick={() => activateViewPreset("top")}>TOP</button>
+            <button className={viewPreset === "iso" ? "active" : ""} onClick={() => activateViewPreset("iso")}>ISO</button>
+            <button className={viewPreset === "front" ? "active" : ""} onClick={() => activateViewPreset("front")}>FRONT</button>
           </div>
           <div className="model-transform-tools" aria-label="3D transform tools">
             <button
@@ -474,7 +553,7 @@ export function ModelViewport({ graph, levelId, selections = [], onSelect, onOpe
           >
             {isolationActive ? <EyeOff size={15} /> : <Eye size={15} />}
           </button>
-          <button className="tool-toggle" onClick={() => setViewPreset("iso")} title="Fit model"><BoxSelect size={15} /></button>
+          <button className="tool-toggle" onClick={() => activateViewPreset("iso")} title="Fit model"><BoxSelect size={15} /></button>
         </div>
       ) : null}
       {!minimal && sectionEnabled ? <label className={selections.length ? "section-slider with-selection" : "section-slider"}><Scissors size={13} /><input aria-label="Section height" type="range" min="0.25" max={maxHeight} step="0.05" value={sectionHeight} onChange={(event) => setSectionHeight(Number(event.target.value))} /><b>{sectionHeight.toFixed(2)} m</b></label> : null}
@@ -533,47 +612,6 @@ function wallPieceMesh(wall: WallEntity, start: number, end: number, base: numbe
   mesh.position.set(wall.from[0] + ux * midpoint, base + height / 2, wall.from[1] + uz * midpoint);
   mesh.rotation.y = -Math.atan2(dz, dx);
   return mesh;
-}
-
-function createFixture(
-  fixture: FixtureEntity,
-  selected: boolean,
-  material: (options: THREE.MeshStandardMaterialParameters) => THREE.MeshStandardMaterial,
-) {
-  const group = new THREE.Group();
-  const [width, depth, height] = fixture.size_m.map((value) => Math.max(0.08, value));
-  const type = `${fixture.type} ${fixture.family_id}`.toLowerCase();
-  const color = selected ? COLORS.selected : /appliance|electrical/.test(type) ? COLORS.appliance : COLORS.fixture;
-  const add = (geometry: THREE.BufferGeometry, position: [number, number, number], shade = color) => {
-    const mesh = new THREE.Mesh(geometry, material({ color: shade, roughness: .68 }));
-    mesh.position.set(...position);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
-  };
-  if (/toilet/.test(type)) {
-    add(new THREE.BoxGeometry(width * .72, height * .42, depth * .72), [0, height * .21, depth * .08], 0xf4f1e9);
-    add(new THREE.CylinderGeometry(width * .3, width * .36, height * .2, 22), [0, height * .46, -depth * .12], 0xfaf8f2);
-    add(new THREE.BoxGeometry(width * .78, height * .46, depth * .3), [0, height * .69, -depth * .31], 0xf4f1e9);
-  } else if (/sink/.test(type)) {
-    add(new THREE.BoxGeometry(width, height * .72, depth), [0, height * .36, 0]);
-    add(new THREE.BoxGeometry(width * .9, height * .08, depth * .88), [0, height * .78, 0], 0xe7e3db);
-    add(new THREE.CylinderGeometry(width * .07, width * .07, height * .2, 12), [0, height * .94, -depth * .16], 0x9ca9aa);
-  } else if (/closet|casework/.test(type)) {
-    add(new THREE.BoxGeometry(width, height, depth), [0, height / 2, 0]);
-    add(new THREE.BoxGeometry(.025, height * .84, depth + .012), [-width * .25, height * .52, 0], 0xb69a75);
-    add(new THREE.BoxGeometry(.025, height * .84, depth + .012), [width * .25, height * .52, 0], 0xb69a75);
-  } else if (/bench/.test(type)) {
-    add(new THREE.BoxGeometry(width, height * .18, depth), [0, height * .72, 0]);
-    add(new THREE.BoxGeometry(width * .08, height * .65, depth * .72), [-width * .38, height * .34, 0]);
-    add(new THREE.BoxGeometry(width * .08, height * .65, depth * .72), [width * .38, height * .34, 0]);
-  } else {
-    add(new THREE.BoxGeometry(width, height, depth), [0, height / 2, 0]);
-    if (/appliance|electrical/.test(type)) add(new THREE.BoxGeometry(width * .78, height * .44, .015), [0, height * .55, depth * .505], 0x5d777f);
-  }
-  group.position.set(fixture.center_m[0], fixture.base_elevation_m ?? 0, fixture.center_m[1]);
-  group.rotation.y = -((fixture.yaw_deg ?? 0) * Math.PI) / 180;
-  return group;
 }
 
 function createRoute(

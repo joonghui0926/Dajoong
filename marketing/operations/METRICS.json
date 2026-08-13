@@ -1,0 +1,37 @@
+{
+  "schema": "dajoong.marketing-funnel.v1",
+  "north_star": {
+    "name": "reviewed_building_opportunities",
+    "definition": "Organizations that complete a guided model review and confirm a scoped multi-floor or recurring conversion need."
+  },
+  "events": [
+    {"name": "campaign_viewed", "properties": ["locale", "referrer_group"]},
+    {"name": "nomination_started", "properties": ["locale"]},
+    {"name": "nomination_submitted", "properties": ["use_case", "source_format", "scale_known", "floor_count_band"]},
+    {"name": "nomination_qualified", "properties": ["difficulty_class", "buyer_role", "downstream_software"]},
+    {"name": "pilot_accepted", "properties": ["private_only", "publication_opt_in", "training_contact_opt_in"]},
+    {"name": "conversion_completed", "properties": ["status", "difficulty_class", "review_required_count", "processing_time_band"]},
+    {"name": "guided_review_completed", "properties": ["reviewer_role", "downstream_fit"]},
+    {"name": "building_scope_confirmed", "properties": ["floor_count_band", "recurring_work", "integration_need"]},
+    {"name": "paid_pilot_requested", "properties": ["scope_band"]}
+  ],
+  "privacy_rules": [
+    "Do not send drawing names, project names, source hashes, model hashes, emails, or artifact URLs to analytics.",
+    "Keep optional analytics off until the user consents.",
+    "Publication consent and training-data contact consent are separate from service acceptance."
+  ],
+  "thirty_day_hypotheses_not_promises": {
+    "qualified_nominations": 20,
+    "accepted_private_pilots": 10,
+    "guided_reviews": 5,
+    "building_scope_opportunities": 2,
+    "consultant_design_partners": 2
+  },
+  "decision_thresholds": [
+    {"if": "nomination_submitted / campaign_viewed < 0.03 after 300 qualified visits", "then": "Revise offer and audience language before adding traffic."},
+    {"if": "nomination_qualified / nomination_submitted < 0.35", "then": "Narrow channels and add stronger professional-use qualification."},
+    {"if": "guided_review_completed / pilot_accepted < 0.50", "then": "Fix scheduling and review handoff before accepting more pilots."},
+    {"if": "building_scope_confirmed / guided_review_completed < 0.20 after 10 reviews", "then": "Reassess value proposition and target segment before paid media."},
+    {"if": "active accepted pilots >= 5", "then": "Pause new acceptance until capacity returns."}
+  ]
+}

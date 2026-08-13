@@ -69,7 +69,7 @@ Resources:
         - sts.amazonaws.com
       Tags:
         - Key: Application
-              Value: Dajoong
+          Value: Dajoong
         - Key: ManagedBy
           Value: CloudFormation
 

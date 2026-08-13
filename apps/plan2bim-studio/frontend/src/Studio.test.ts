@@ -10,6 +10,8 @@ let actionMutationSelections: (
   action: SessionAction,
   graph: PlanGraph | null,
 ) => Array<{ collection: string; id: string }>;
+let shouldRecoverStudioSession: typeof import("./Studio").shouldRecoverStudioSession;
+let sessionSchemaVersion: number;
 
 beforeAll(async () => {
   vi.stubGlobal("window", { location: { origin: "http://localhost" } });
@@ -18,6 +20,8 @@ beforeAll(async () => {
   studioSessionReducer = studio.studioSessionReducer;
   actionSelections = studio.actionSelections;
   actionMutationSelections = studio.actionMutationSelections;
+  shouldRecoverStudioSession = studio.shouldRecoverStudioSession;
+  sessionSchemaVersion = studio.STUDIO_SESSION_SCHEMA_VERSION;
 });
 
 const graph: PlanGraph = {
@@ -40,6 +44,49 @@ const graph: PlanGraph = {
 };
 
 describe("Studio edit transactions", () => {
+  it("refreshes untouched legacy demos but preserves unsynced edits", () => {
+    expect(shouldRecoverStudioSession({ graph, operations: [] })).toBe(false);
+    expect(shouldRecoverStudioSession({ graph, operations: [{
+      id: "legacy-edit",
+      collection: "fixtures",
+      entity_id: "chair-1",
+      action: "update",
+      reason: "test",
+      changes: {},
+    }] })).toBe(true);
+    expect(shouldRecoverStudioSession({
+      schema_version: sessionSchemaVersion,
+      graph,
+      operations: [],
+    })).toBe(true);
+  });
+
+  it("refreshes the bundled sample even when an old cache has the current schema", () => {
+    const bundledGraph = {
+      ...graph,
+      provenance: {
+        source_image_sha256: "2c9092e12dd22207b1ab41d7660534d73f4b341121d279685307ba20597da5d6",
+      },
+    };
+    expect(shouldRecoverStudioSession({
+      schema_version: sessionSchemaVersion,
+      graph: bundledGraph,
+      operations: [],
+    })).toBe(false);
+    expect(shouldRecoverStudioSession({
+      schema_version: sessionSchemaVersion,
+      graph: bundledGraph,
+      operations: [{
+        id: "kept-user-edit",
+        collection: "fixtures",
+        entity_id: "chair-1",
+        action: "update",
+        reason: "user edit",
+        changes: {},
+      }],
+    })).toBe(true);
+  });
+
   it("identifies every existing entity touched by a mutation command", () => {
     const selections = [
       { collection: "walls" as const, id: "wall-1" },

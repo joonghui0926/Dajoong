@@ -1,0 +1,33 @@
+Day,Workstream,Action,Owner,Asset,Approval gate,Success signal
+0,Governance,Approve private founding cohort and claims register,Founder,approval/APPROVAL_CARD.md,Owner approval,Approval line received
+1,Product marketing,Implement campaign route and nomination form,Product+Marketing,campaigns/100_DRAWINGS.md,Privacy review,Form events verified
+2,QA,Test upload consent storage deletion and support routing,Engineering,Nomination form,Release checklist,All acceptance tests pass
+3,Proof,Generate one internal synthetic Build Sheet example,Engineering,BIM Build Sheet schema,Claims review,No unsupported claims
+4,Content,Publish English founder launch,Founder,content/LAUNCH_COPY.md,Final URL live,Qualified visits begin
+4,Content,Publish Korean companion launch,Founder,content/LAUNCH_COPY.md,Final URL live,Korean qualified visits begin
+5,Partners,Invite five owner-approved BIM consultants,Founder,outreach/OUTREACH_SEQUENCE.md,Recipient approval,Two replies
+6,Direct,Invite first five owner-approved design partners,Founder,outreach/OUTREACH_SEQUENCE.md,Recipient approval,One nomination
+7,Operations,Review first applications and accept at most five,Marketing+Engineering,Selection rubric,Capacity check,Three qualified pilots
+8,Delivery,Run pilot one and prepare private review,Engineering,Build Sheet,Model hash gate,Review session booked
+9,Content,Publish technical proof post,Founder,content/LAUNCH_COPY.md,Claims review,Technical engagement
+10,Delivery,Run pilot two and prepare private review,Engineering,Build Sheet,Model hash gate,Review session booked
+11,Partners,Send consultant follow-up,Founder,outreach/OUTREACH_SEQUENCE.md,Recipient approval,Partner call booked
+12,Research,Tag rejection reasons and drawing classes,Marketing,Application data,No sensitive export,Selection quality improves
+13,Delivery,Hold first two guided reviews,Founder+Engineering,Discovery outline,Customer consent,One building-scope opportunity
+14,Funnel,Review conversion and capacity thresholds,Marketing,operations/METRICS.json,None,Go/pause decision recorded
+15,Content,Request separate case-card permission from successful pilots,Founder,Consent request,Explicit opt-in,One public case approved
+16,Direct,Invite next five approved contacts,Founder,outreach/OUTREACH_SEQUENCE.md,Recipient approval,One nomination
+17,Proof,Publish first approved weekly case or aggregate technical note,Marketing,Weekly case template,Publication consent,Qualified CTA visits
+18,Delivery,Run pilots three and four,Engineering,Build Sheets,Model hash gate,Reviews booked
+19,Marketplace,Prepare Autodesk marketplace profile draft,Marketing,Message house,Separate submission approval,Draft complete
+20,Community,Prepare buildingSMART technical submission outline,Marketing+Engineering,Research evidence,Separate submission approval,Outline complete
+21,Partners,Hold consultant co-review,Founder+Partner,Partner workflow,Customer consent,Repeatable partner scope
+22,Product,Prioritize friction found in first four reviews,Product,Review notes,No campaign scope creep,Top blocker assigned
+23,Content,Publish “what the compiler refused to guess” post,Founder,Weekly case template,Claims+consent review,Trust-oriented engagement
+24,Direct,Send final five approved invitations,Founder,outreach sequence,Recipient approval,Cohort pipeline filled
+25,Delivery,Run pilot five,Engineering,Build Sheet,Model hash gate,Review booked
+26,Sales,Send building-scope follow-up to qualified pilots,Founder,Sequence C,Recipient-specific review,Proposal requests
+27,Analytics,Analyze source-to-paid funnel and qualification mix,Marketing,Event taxonomy,None,Decision memo complete
+28,Offer,Set paid building-pilot scope from observed support cost,Founder+Engineering,Pilot data,Pricing approval,Defensible offer
+29,Content,Publish aggregate month-one field report,Marketing,Private aggregate data,Privacy+claims review,Qualified inbound
+30,Decision,Scale pause or narrow cohort,Founder,Month-one scorecard,Owner decision,Next 30-day plan approved

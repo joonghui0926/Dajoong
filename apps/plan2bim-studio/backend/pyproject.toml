@@ -10,6 +10,7 @@ requires-python = ">=3.12,<3.14"
 dependencies = [
   "buili-plan2bim==0.1.0",
   "fastapi>=0.116,<1",
+  "httpx>=0.28,<1",
   "pydantic>=2.8,<3",
   "python-multipart>=0.0.20,<1",
   "uvicorn[standard]>=0.35,<1",

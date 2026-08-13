@@ -13,6 +13,7 @@ local.properties
 # Private model packages are injected from encrypted object storage in CI.
 modules/plan2bim/src/buili_plan2bim/models/*
 !modules/plan2bim/src/buili_plan2bim/models/__init__.py
+!modules/plan2bim/src/buili_plan2bim/models/ACTIVE_RUNTIME.json
 private-models/
 *.onnx
 *.pt

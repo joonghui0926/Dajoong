@@ -70,6 +70,79 @@ export interface FixtureEntity extends BaseEntity {
   size_m: [number, number, number];
   yaw_deg?: number;
   material?: string;
+  geometry_status?: "evidence_sized" | "approved_family" | "semantic_marker" | "licensed_api_asset" | "native_bim_parametric" | string;
+  asset_uid?: string;
+  asset_name?: string;
+  asset_author?: string;
+  asset_license?: string;
+  asset_source_uri?: string;
+  asset_sha256?: string;
+  asset_mesh_sha256?: string;
+  geometry_ref?: string;
+  geometry_scale_xyz?: [number, number, number];
+  asset_candidate_count?: number;
+  asset_selection_score?: number;
+  asset_selection_margin?: number;
+  asset_selection_review_required?: boolean;
+  asset_selection_elapsed_us?: number;
+  asset_selection_policy?: string;
+  asset_selection_context?: {
+    room_id?: string;
+    room_label?: string;
+    installation?: string;
+    nearest_wall_m?: number | null;
+    nearest_wall_angle_deg?: number | null;
+    nearby_families?: string[];
+  };
+  asset_selection_components?: {
+    score?: number;
+    footprint?: number;
+    shape?: number;
+    context?: number;
+    detail?: number;
+  };
+  asset_selection_alternates?: Array<{
+    asset_uid?: string;
+    asset_name?: string;
+    native_variant?: string;
+    score?: number;
+  }>;
+  mesh_vertices?: [number, number, number][];
+  mesh_faces?: [number, number, number][];
+  mesh_face_colors?: [number, number, number][];
+}
+
+export interface FamilyAssetDefinition {
+  schema_version: "dajoong.family-asset.v1" | string;
+  geometry_status: string;
+  asset_uid?: string;
+  family_id?: string;
+  asset_mesh_sha256: string;
+  normalized_to_unit_envelope?: boolean;
+  mesh_vertices: [number, number, number][];
+  mesh_faces: [number, number, number][];
+  mesh_face_colors?: [number, number, number][];
+}
+
+export interface AssetDelivery {
+  schema_version: "dajoong.asset-delivery.v1" | string;
+  catalog_url: string;
+  mesh_url_template: string;
+  format: "dajoong.mesh.v1" | string;
+  content_addressed: boolean;
+  lazy_by_visible_level: boolean;
+}
+
+export interface DetectionReviewCandidate {
+  id: string;
+  level_id: string;
+  source_candidate_id: string;
+  source_bbox_px: [number, number, number, number];
+  bbox_m: [number, number, number, number];
+  proposed_type: string;
+  confidence: number;
+  reason: string;
+  review_state: "review_required" | string;
 }
 
 export interface RouteEntity extends BaseEntity {
@@ -115,6 +188,9 @@ export interface PlanGraph {
   rooms: RoomEntity[];
   openings: OpeningEntity[];
   fixtures: FixtureEntity[];
+  family_assets?: Record<string, FamilyAssetDefinition>;
+  asset_delivery?: AssetDelivery;
+  detection_review_candidates?: DetectionReviewCandidate[];
   routes: RouteEntity[];
   vertical_connections?: VerticalConnectionEntity[];
   constraints?: GeometricConstraintEntity[];

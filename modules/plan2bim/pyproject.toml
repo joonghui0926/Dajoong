@@ -23,6 +23,10 @@ dev = [
   "pytest>=8.3,<10",
   "ruff>=0.9,<1",
 ]
+train = [
+  "onnx>=1.17,<2",
+  "torch>=2.4,<3",
+]
 
 [project.scripts]
 buili-plan2bim = "buili_plan2bim.cli:main"
@@ -38,6 +42,8 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 buili_plan2bim = [
+  "assets/curated-v1/*.json",
+  "assets/curated-v1/meshes/*.npz",
   "models/*.onnx",
   "models/*.json",
 ]

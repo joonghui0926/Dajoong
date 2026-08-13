@@ -1,0 +1,55 @@
+{
+  "schema_version": "dajoong.manual-reference-color-bim.v1",
+  "sample_id": "cubi-014",
+  "source_sha256": "35034265aad841587fd1d808de676f67b48e22105711f2d4a10b46b21c8c8dc2",
+  "source_graph_sha256": "f8be54997ee54aa98361ace2322006471214d7de993417ae724bcd88da790cbb",
+  "plan_graph_sha256": "37cad2aa9a5cae0aad49fd588238784a0c637278d7dfecd74d9cd7d23e56b2c0",
+  "ifc_sha256": "b9da6e02891fb4d2488058957bed8856edf4546d60af61a1a3689120fee19567",
+  "preview_sha256": "c1409fb050e3aae9b084673a0b81565c963de8760b9a060043a3a98b0bcc7e21",
+  "entity_counts": {
+    "rooms": 12,
+    "walls": 36,
+    "openings": 20,
+    "fixed_objects": 68,
+    "licensed_mesh_objects": 51,
+    "native_construction_families": 17,
+    "reviewer_grounded_loose_furniture": 15
+  },
+  "fixture_geometry_status_counts": {
+    "native_bim_parametric": 17,
+    "licensed_api_asset": 51
+  },
+  "ifc": {
+    "output": "artifacts\\api-asset-color-bim-real-v8\\cubi-014\\cubi-014-color-bim.ifc",
+    "certificate": "artifacts\\api-asset-color-bim-real-v8\\cubi-014\\cubi-014-color-bim.ifc.certificate.json",
+    "bytes": 9191707,
+    "entities": 4534,
+    "releaseAllowed": false,
+    "reviewRequired": true,
+    "exportSeconds": 0.998407,
+    "certificateSha256": "af0c5f89efdbc367c02fd17b0b14bf3b3b0c10c6a6ee8153d75477ff07b06023"
+  },
+  "reference_standard": "single_reviewer_visual_reference_only",
+  "metric_scale": "illustrative_fixed_0.01m_per_source_pixel",
+  "not_for_construction": true,
+  "autonomous_model_output": false,
+  "reference_driven_asset_placement": true,
+  "external_asset_catalog": {
+    "schema_version": "dajoong.licensed-mesh-catalog.v1",
+    "provider": "Objaverse 1.0 API (Sketchfab-origin downloadable assets)",
+    "catalog_entry_count": 58,
+    "network_on_conversion_path": false,
+    "resolved_fixture_count": 68,
+    "unresolved_fixture_count": 0,
+    "unresolved": [],
+    "suppressed_fully_occupied_casework_count": 1,
+    "suppressed_fully_occupied_casework": [
+      {
+        "id": "svg-fixture-031",
+        "name": "BaseCabinet",
+        "reason": "fully_occupied_casework_slot_suppressed:base_cabinet"
+      }
+    ]
+  },
+  "content_sha256": "9cba6c94d13d663728ff8c82af052734f5422b1737218b860bc29a0676bda902"
+}

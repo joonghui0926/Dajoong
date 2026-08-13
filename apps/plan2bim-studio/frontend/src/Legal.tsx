@@ -5,7 +5,7 @@ const copy = {
     title: "Privacy policy",
     updated: "Effective August 9, 2026",
     sections: [
-      ["Who operates Dajoong", "Dajoong provides the Plan2BIM service and acts as the data controller for individual accounts. For organization projects, Dajoong processes project data under the organization's instructions. Privacy requests can be sent to jjoonghui@gmail.com."],
+      ["Who operates Dajoong", "Dajoong provides the Studio service and acts as the data controller for individual accounts. For organization projects, Dajoong processes project data under the organization's instructions. Privacy requests can be sent to jjoonghui@gmail.com."],
       ["What we process", "We process account identifiers, uploaded drawings, conversion settings, generated models, corrections, review history, and limited security or reliability logs needed to provide and protect the service."],
       ["Drawing ownership", "You retain ownership of uploaded drawings and generated project data. Project content is used to run the requested conversion and is never used for model training without separate written permission."],
       ["Why we process it", "Account and project data is processed to perform the service, secure accounts, provide support, and meet contractual or legal obligations. Optional analytics remains off until you consent."],

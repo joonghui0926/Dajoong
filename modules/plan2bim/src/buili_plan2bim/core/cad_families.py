@@ -109,6 +109,102 @@ FAMILY_MANIFESTS: dict[str, dict[str, object]] = {
         "ifc_class": "IfcChimney",
         "recipe": "shaft+cap",
     },
+    "residential-base-cabinet": {
+        "version": "1.0.0",
+        "discipline": "architectural",
+        "ifc_class": "IfcFurniture",
+        "recipe": "toe-kick+carcass+counter+paired-doors",
+    },
+    "residential-wall-cabinet": {
+        "version": "1.0.0",
+        "discipline": "architectural",
+        "ifc_class": "IfcFurniture",
+        "recipe": "carcass+paired-doors+lower-trim",
+    },
+    "residential-shower-enclosure": {
+        "version": "1.0.0",
+        "discipline": "plumbing",
+        "ifc_class": "IfcSanitaryTerminal",
+        "recipe": "tray+glass-panels+corner-posts+shower-head",
+    },
+    "structural-column": {
+        "version": "1.0.0",
+        "discipline": "architectural",
+        "ifc_class": "IfcColumn",
+        "recipe": "base+shaft+capital",
+    },
+    "residential-stair": {
+        "version": "1.0.0",
+        "discipline": "architectural",
+        "ifc_class": "IfcStairFlight",
+        "recipe": "seven-treads+riser-flight",
+    },
+    "generic-equipment-housing": {
+        "version": "1.0.0",
+        "discipline": "architectural",
+        "ifc_class": "IfcBuildingElementProxy",
+        "recipe": "plinth+housing+service-panel+top-cap",
+    },
+    "residential-coat-rack": {
+        "version": "1.0.0",
+        "discipline": "architectural",
+        "ifc_class": "IfcFurniture",
+        "recipe": "back-rail+five-hooks",
+    },
+    "residential-water-tap": {
+        "version": "1.0.0",
+        "discipline": "plumbing",
+        "ifc_class": "IfcSanitaryTerminal",
+        "recipe": "base+stem+spout+handle",
+    },
+    "residential-jacuzzi": {
+        "version": "1.0.0",
+        "discipline": "plumbing",
+        "ifc_class": "IfcSanitaryTerminal",
+        "recipe": "tub-bottom+four-rim-rails+jet-console",
+    },
+    "residential-wood-stove": {
+        "version": "1.0.0",
+        "discipline": "architectural",
+        "ifc_class": "IfcEnergyConversionDevice",
+        "recipe": "four-legs+firebox+door+flue",
+    },
+    "residential-corner-fireplace": {
+        "version": "1.0.0",
+        "discipline": "architectural",
+        "ifc_class": "IfcBuildingElementProxy",
+        "recipe": "corner-hearth+dual-jamb+lintel+firebox",
+    },
+    "fireplace-provision": {
+        "version": "1.0.0",
+        "discipline": "architectural",
+        "ifc_class": "IfcBuildingElementProxy",
+        "recipe": "reserved-hearth+corner-markers",
+    },
+    "corner-fireplace-provision": {
+        "version": "1.0.0",
+        "discipline": "architectural",
+        "ifc_class": "IfcBuildingElementProxy",
+        "recipe": "reserved-corner-hearth+dual-markers",
+    },
+    "generic-fixture": {
+        "version": "1.0.0",
+        "discipline": "architectural",
+        "ifc_class": "IfcBuildingElementProxy",
+        "recipe": "pedestal+cross-body+top-cap",
+    },
+    "generic-plumbing-fixture": {
+        "version": "1.0.0",
+        "discipline": "plumbing",
+        "ifc_class": "IfcSanitaryTerminal",
+        "recipe": "pedestal+basin+tap",
+    },
+    "generic-riser": {
+        "version": "1.0.0",
+        "discipline": "mechanical",
+        "ifc_class": "IfcFlowSegment",
+        "recipe": "vertical-shaft+top-cap",
+    },
 }
 
 
@@ -363,6 +459,226 @@ def parametric_family_parts(family_id: str, size: tuple[float, float, float]) ->
             [
                 _part(0, 0, base, width * 0.82, depth * 0.82, height * 0.9),
                 _part(0, 0, base + height * 0.9, width, depth, height * 0.1),
+            ]
+        )
+    elif family_id in {"residential-base-cabinet", "residential-wall-cabinet"}:
+        carcass_height = height * 0.82
+        parts.extend(
+            [
+                _part(0, 0, base, width * 0.96, depth * 0.94, carcass_height),
+                _part(0, 0, base + carcass_height, width, depth, height * 0.08),
+                _part(
+                    -width * 0.245,
+                    -depth * 0.485,
+                    base + height * 0.43,
+                    width * 0.47,
+                    depth * 0.03,
+                    height * 0.72,
+                ),
+                _part(
+                    width * 0.245,
+                    -depth * 0.485,
+                    base + height * 0.43,
+                    width * 0.47,
+                    depth * 0.03,
+                    height * 0.72,
+                ),
+            ]
+        )
+    elif family_id == "residential-shower-enclosure":
+        panel = max(0.012, min(width, depth) * 0.025)
+        post = max(panel * 2.5, 0.025)
+        parts.extend(
+            [
+                _part(0, 0, base, width, depth, max(base, height * 0.035)),
+                _part(-width * 0.49, 0, base, panel, depth, height * 0.92),
+                _part(0, depth * 0.49, base, width, panel, height * 0.92),
+                _part(-width * 0.49, depth * 0.49, base, post, post, height),
+                _part(width * 0.49, depth * 0.49, base, post, post, height),
+                _part(
+                    width * 0.34,
+                    depth * 0.42,
+                    height * 0.78,
+                    width * 0.14,
+                    depth * 0.08,
+                    height * 0.07,
+                ),
+            ]
+        )
+    elif family_id == "structural-column":
+        parts.extend(
+            [
+                _part(0, 0, base, width * 0.78, depth * 0.78, height * 0.82),
+                _part(0, 0, height * 0.86, width, depth, height * 0.08),
+            ]
+        )
+    elif family_id == "residential-stair":
+        step_count = 7
+        tread_depth = depth / step_count
+        for index in range(step_count):
+            step_height = height * (index + 1) / step_count
+            parts.append(
+                _part(
+                    0,
+                    -depth / 2 + tread_depth * (index + 0.5),
+                    base,
+                    width,
+                    tread_depth,
+                    step_height,
+                )
+            )
+    elif family_id == "generic-equipment-housing":
+        parts.extend(
+            [
+                _part(0, 0, base, width * 0.94, depth * 0.92, height * 0.76),
+                _part(
+                    0,
+                    -depth * 0.47,
+                    base + height * 0.18,
+                    width * 0.62,
+                    depth * 0.05,
+                    height * 0.42,
+                ),
+                _part(0, 0, base + height * 0.78, width, depth, height * 0.08),
+            ]
+        )
+    elif family_id == "residential-coat-rack":
+        parts.append(_part(0, 0, base + height * 0.56, width, depth * 0.28, height * 0.10))
+        parts.extend(
+            _part(
+                width * offset,
+                -depth * 0.28,
+                base + height * 0.45,
+                width * 0.035,
+                depth * 0.48,
+                height * 0.22,
+            )
+            for offset in (-0.4, -0.2, 0.0, 0.2, 0.4)
+        )
+    elif family_id == "residential-water-tap":
+        parts.extend(
+            [
+                _part(0, 0, base, width * 0.22, depth * 0.22, height * 0.72),
+                _part(
+                    0,
+                    -depth * 0.22,
+                    base + height * 0.62,
+                    width * 0.22,
+                    depth * 0.52,
+                    height * 0.10,
+                ),
+                _part(
+                    -width * 0.22,
+                    0,
+                    base + height * 0.42,
+                    width * 0.42,
+                    depth * 0.10,
+                    height * 0.08,
+                ),
+            ]
+        )
+    elif family_id == "residential-jacuzzi":
+        rim_height = max(base, height * 0.20)
+        parts.extend(
+            [
+                _part(0, 0, base, width * 0.82, depth * 0.78, height * 0.18),
+                _part(0, -depth * 0.45, base + height * 0.22, width, depth * 0.10, rim_height),
+                _part(0, depth * 0.45, base + height * 0.22, width, depth * 0.10, rim_height),
+                _part(
+                    -width * 0.45, 0, base + height * 0.22, width * 0.10, depth * 0.80, rim_height
+                ),
+                _part(
+                    width * 0.45, 0, base + height * 0.22, width * 0.10, depth * 0.80, rim_height
+                ),
+                _part(
+                    0, depth * 0.36, base + height * 0.42, width * 0.32, depth * 0.12, height * 0.08
+                ),
+            ]
+        )
+    elif family_id == "residential-wood-stove":
+        parts.extend(
+            [
+                _part(
+                    -width * 0.34, -depth * 0.34, base, width * 0.10, depth * 0.10, height * 0.20
+                ),
+                _part(width * 0.34, -depth * 0.34, base, width * 0.10, depth * 0.10, height * 0.20),
+                _part(-width * 0.34, depth * 0.34, base, width * 0.10, depth * 0.10, height * 0.20),
+                _part(width * 0.34, depth * 0.34, base, width * 0.10, depth * 0.10, height * 0.20),
+                _part(0, 0, base + height * 0.18, width * 0.88, depth * 0.88, height * 0.55),
+                _part(
+                    0,
+                    -depth * 0.46,
+                    base + height * 0.28,
+                    width * 0.58,
+                    depth * 0.04,
+                    height * 0.30,
+                ),
+                _part(0, 0, base + height * 0.73, width * 0.24, depth * 0.24, height * 0.27),
+            ]
+        )
+    elif family_id == "residential-corner-fireplace":
+        parts.extend(
+            [
+                _part(-width * 0.30, 0, base, width * 0.24, depth, height * 0.78),
+                _part(0, -depth * 0.30, base, width, depth * 0.24, height * 0.78),
+                _part(
+                    -width * 0.12,
+                    -depth * 0.12,
+                    base + height * 0.70,
+                    width * 0.70,
+                    depth * 0.70,
+                    height * 0.10,
+                ),
+                _part(
+                    -width * 0.10, -depth * 0.10, base, width * 0.55, depth * 0.55, height * 0.08
+                ),
+            ]
+        )
+    elif family_id in {"fireplace-provision", "corner-fireplace-provision"}:
+        parts.append(_part(0, 0, base, width, depth, max(base, height * 0.25)))
+        if family_id == "fireplace-provision":
+            parts.extend(
+                [
+                    _part(-width * 0.46, 0, base, width * 0.08, depth, height * 0.72),
+                    _part(width * 0.46, 0, base, width * 0.08, depth, height * 0.72),
+                ]
+            )
+        else:
+            parts.extend(
+                [
+                    _part(-width * 0.46, 0, base, width * 0.08, depth, height * 0.72),
+                    _part(0, -depth * 0.46, base, width, depth * 0.08, height * 0.72),
+                ]
+            )
+    elif family_id == "generic-fixture":
+        parts.extend(
+            [
+                _part(0, 0, base, width * 0.24, depth * 0.24, height * 0.72),
+                _part(0, 0, base + height * 0.40, width * 0.82, depth * 0.16, height * 0.12),
+                _part(0, 0, base + height * 0.40, width * 0.16, depth * 0.82, height * 0.12),
+                _part(0, 0, base + height * 0.74, width * 0.52, depth * 0.52, height * 0.08),
+            ]
+        )
+    elif family_id == "generic-plumbing-fixture":
+        parts.extend(
+            [
+                _part(0, 0, base, width * 0.42, depth * 0.42, height * 0.58),
+                _part(0, 0, height * 0.56, width, depth, height * 0.16),
+                _part(
+                    0,
+                    depth * 0.2,
+                    height * 0.74,
+                    width * 0.08,
+                    depth * 0.08,
+                    height * 0.18,
+                ),
+            ]
+        )
+    elif family_id == "generic-riser":
+        parts.extend(
+            [
+                _part(0, 0, base, width * 0.72, depth * 0.72, height * 0.94),
+                _part(0, 0, height * 0.94, width, depth, height * 0.06),
             ]
         )
     return parts

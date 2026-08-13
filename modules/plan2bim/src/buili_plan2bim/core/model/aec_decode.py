@@ -18,6 +18,7 @@ class PixelLineProposal(BaseModel):
     id: str
     start_px: tuple[float, float]
     end_px: tuple[float, float]
+    thickness_px: float | None = Field(default=None, gt=0)
     confidence: float = Field(ge=0, le=1)
     uncertainty: float = Field(ge=0, le=1)
     source_ref_ids: list[str] = Field(min_length=1)

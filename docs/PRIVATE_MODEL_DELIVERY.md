@@ -8,6 +8,10 @@ inside one `models/` directory. It must contain each `.onnx` checkpoint and its
 matching `.onnx.json` content-addressed manifest. Qualification and calibration JSON
 files may be included in the same bundle.
 
+`ACTIVE_RUNTIME.json` is deliberately not part of the private bundle. It is checked
+into the application repository and pins the accepted filenames and hashes. The
+installer rejects a bundle that tries to replace it.
+
 Upload it to a private, versioned, encrypted S3 bucket. Give only the GitHub deployment
 OIDC role read access to that exact object. Set:
 

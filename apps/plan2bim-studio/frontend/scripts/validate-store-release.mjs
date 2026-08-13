@@ -10,9 +10,9 @@ const declaration = JSON.parse(await read('store/release-declaration.json'));
 assert(declaration.app.bundleId === 'com.dajoong.plan2bim', 'Store bundle ID drifted');
 assert(declaration.app.supportEmail === 'jjoonghui@gmail.com', 'Store support email drifted');
 const requiredPublicUrls = {
-  supportUrl: 'https://studio.builiconstruction.com/support',
-  privacyUrl: 'https://studio.builiconstruction.com/privacy',
-  accountDeletionUrl: 'https://studio.builiconstruction.com/account-deletion',
+  supportUrl: 'https://studio.dajoongbim.com/support',
+  privacyUrl: 'https://studio.dajoongbim.com/privacy',
+  accountDeletionUrl: 'https://studio.dajoongbim.com/account-deletion',
 };
 for (const [name, expected] of Object.entries(requiredPublicUrls)) {
   assert(declaration.app[name] === expected, `${name} must stay on the deployed Dajoong .com domain`);
@@ -72,26 +72,26 @@ const manifest = await read('android/app/src/main/AndroidManifest.xml');
 assert(manifest.includes('android:usesCleartextTraffic="false"'), 'Android cleartext traffic must stay disabled');
 assert(manifest.includes('android:allowBackup="false"'), 'Android backup must stay disabled');
 assert(manifest.includes('android:autoVerify="true"'), 'Android App Links must stay verified');
-assert(manifest.includes('android:host="app.builiconstruction.com"'), 'Android app link host drifted');
-assert(manifest.includes('android:host="studio.builiconstruction.com"'), 'Android Studio link host drifted');
+assert(manifest.includes('android:host="app.dajoongbim.com"'), 'Android app link host drifted');
+assert(manifest.includes('android:host="studio.dajoongbim.com"'), 'Android Studio link host drifted');
 assert(manifest.includes('android:scheme="com.dajoong.plan2bim"'), 'Android OAuth callback scheme drifted');
 const privacyManifest = await read('ios/App/App/PrivacyInfo.xcprivacy');
 assert(privacyManifest.includes('<key>NSPrivacyTracking</key>') && privacyManifest.includes('<false/>'), 'iOS privacy manifest must declare no tracking');
 assert(privacyManifest.includes('<key>NSPrivacyAccessedAPITypes</key>'), 'iOS privacy manifest must explicitly declare required-reason API use');
 const entitlements = await read('ios/App/App/App.entitlements');
 assert(entitlements.includes('com.apple.developer.applesignin') && entitlements.includes('<string>Default</string>'), 'iOS Sign in with Apple entitlement is required');
-assert(entitlements.includes('applinks:app.builiconstruction.com') && entitlements.includes('applinks:studio.builiconstruction.com'), 'iOS associated domains drifted');
+assert(entitlements.includes('applinks:app.dajoongbim.com') && entitlements.includes('applinks:studio.dajoongbim.com'), 'iOS associated domains drifted');
 const pbx = await read('ios/App/App.xcodeproj/project.pbxproj');
 assert(pbx.includes('PRODUCT_BUNDLE_IDENTIFIER = com.dajoong.plan2bim;'), 'iOS bundle ID drifted');
 assert(pbx.includes('com.apple.SignInWithApple') && pbx.includes('com.apple.AssociatedDomains'), 'iOS target capabilities drifted');
 
 const webWorkerConfig = await read('../infra/cloudflare/wrangler.web.jsonc');
-for (const host of ['builiconstruction.com', 'www.builiconstruction.com', 'studio.builiconstruction.com', 'app.builiconstruction.com']) {
+for (const host of ['dajoongbim.com', 'www.dajoongbim.com', 'studio.dajoongbim.com', 'app.dajoongbim.com']) {
   assert(webWorkerConfig.includes(`"pattern": "${host}"`), `Cloudflare custom domain missing: ${host}`);
 }
 const webWorker = await read('../infra/cloudflare/studio-web-worker.ts');
-assert(webWorker.includes("const MARKETING_HOST = 'builiconstruction.com'"), 'Marketing apex host guard drifted');
-assert(webWorker.includes("const STUDIO_HOST = 'studio.builiconstruction.com'"), 'Studio host guard drifted');
+assert(webWorker.includes("const MARKETING_HOST = 'dajoongbim.com'"), 'Marketing apex host guard drifted');
+assert(webWorker.includes("const STUDIO_HOST = 'studio.dajoongbim.com'"), 'Studio host guard drifted');
 assert(webWorker.includes('ASSOCIATION_PATHS'), 'Native association files must bypass hostname redirects');
 
 const protectedPattern = /\.(?:onnx|pt|pth|ckpt|safetensors|pem|p12|jks|keystore)$/i;

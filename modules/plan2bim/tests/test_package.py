@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import struct
+import subprocess
 import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 from pydantic import ValidationError
 
 from buili_plan2bim import (
@@ -30,7 +31,16 @@ from buili_plan2bim.core.glb_export import export_editable_glb
 from buili_plan2bim.core.ifc_export import export_ifc
 from buili_plan2bim.core.plan_graph_verification import PlanGraphVerifier
 from buili_plan2bim.input_document import prepare_drawing
-from buili_plan2bim.semantic_recognition import _room_records, _wall_centerlines
+from buili_plan2bim.pipeline import ConversionError
+from buili_plan2bim.semantic_recognition import (
+    OnnxFloorPlanSemanticRecognizer,
+    SemanticDetection,
+    SemanticRecognitionResult,
+    _refine_wall_vectors_from_raster,
+    _room_records,
+    _wall_centerlines,
+    _wall_vectors,
+)
 
 EXPECTED_MODEL_SHA256 = "36bcfe230be22ed869eb7bc3a940805c516dd0970c66649f944f0d5451ff1817"
 
@@ -49,12 +59,36 @@ def test_bundled_model_is_content_addressed() -> None:
     assert Path(converter.model_path).stat().st_size < 500_000
 
 
+def test_missing_semantic_model_cannot_silently_run_primary_only(tmp_path: Path) -> None:
+    converter = Plan2BimConverter()
+    converter.semantic_model_missing = True
+
+    with pytest.raises(ConversionError, match="pinned semantic model is unavailable"):
+        converter.convert(
+            tmp_path / "not-read.png",
+            tmp_path / "output",
+            ConversionConfig(pixels_per_meter=100),
+        )
+
+
 def test_cli_model_card_does_not_require_drawing(monkeypatch, capsys) -> None:
     monkeypatch.setattr(sys, "argv", ["dajoong-plan2bim", "--model-card"])
 
     cli_main()
 
     payload = json.loads(capsys.readouterr().out)
+    assert payload["parameters"] == 86_533
+
+
+def test_python_module_cli_executes_instead_of_silent_success() -> None:
+    completed = subprocess.run(
+        [sys.executable, "-m", "buili_plan2bim.cli", "--model-card"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(completed.stdout)
     assert payload["parameters"] == 86_533
 
 
@@ -69,6 +103,7 @@ def test_image_to_ifc_smoke(tmp_path: Path) -> None:
             level_id="L1",
             level_name="Level 1",
             pixels_per_meter=100,
+            allow_primary_only_smoke=True,
         ),
     )
 
@@ -123,6 +158,79 @@ def test_semantic_wall_mask_vectorizes_closed_room() -> None:
     assert any(abs(start_x - end_x) < 1e-6 for start_x, _, end_x, _ in lines)
 
 
+def test_semantic_wall_vector_recovers_center_and_thickness_across_opening() -> None:
+    mask = np.zeros((120, 240), dtype=np.bool_)
+    mask[32:48, 20:220] = True
+    mask[32:48, 104:132] = False
+    # A perpendicular junction must not inflate the long wall's thickness.
+    mask[24:96, 176:192] = True
+
+    vectors = _wall_vectors(mask)
+    horizontal = max(
+        (item for item in vectors if abs(item.start_px[1] - item.end_px[1]) < 1e-6),
+        key=lambda item: abs(item.end_px[0] - item.start_px[0]),
+    )
+
+    assert horizontal.start_px[1] == pytest.approx(39.5, abs=1.0)
+    assert horizontal.end_px[1] == pytest.approx(39.5, abs=1.0)
+    assert horizontal.thickness_px == pytest.approx(16.0, abs=1.0)
+
+
+def test_semantic_wall_vector_keeps_long_walls_at_thick_t_junctions() -> None:
+    mask = np.zeros((180, 240), dtype=np.bool_)
+    mask[20:48, 20:220] = True
+    mask[20:160, 68:82] = True
+    mask[20:160, 158:172] = True
+
+    vectors = _wall_vectors(mask)
+    vertical_centers = [
+        (item.start_px[0] + item.end_px[0]) / 2
+        for item in vectors
+        if abs(item.start_px[0] - item.end_px[0]) < 1e-6
+        and abs(item.end_px[1] - item.start_px[1]) > 80
+    ]
+
+    assert any(abs(center - 74.5) <= 2 for center in vertical_centers)
+    assert any(abs(center - 164.5) <= 2 for center in vertical_centers)
+
+
+def test_semantic_wall_vector_recovers_diagonal_wall() -> None:
+    canvas = Image.new("1", (240, 200), 0)
+    draw = ImageDraw.Draw(canvas)
+    draw.line((35, 170, 125, 80), fill=1, width=14)
+    draw.line((35, 30, 35, 170), fill=1, width=14)
+    draw.line((125, 80, 220, 80), fill=1, width=14)
+
+    vectors = _wall_vectors(np.asarray(canvas, dtype=np.bool_))
+    diagonals = [
+        item
+        for item in vectors
+        if abs(item.start_px[0] - item.end_px[0]) > 40
+        and abs(item.start_px[1] - item.end_px[1]) > 40
+    ]
+
+    assert diagonals
+    assert diagonals[0].thickness_px == pytest.approx(14.0, abs=3.0)
+
+
+def test_raster_refinement_recenters_semantic_wall_without_adding_walls() -> None:
+    source = np.full((120, 240), 255, dtype=np.uint8)
+    source[40:56, 20:220] = 0
+    semantic = np.zeros((120, 240), dtype=np.bool_)
+    semantic[46:62, 20:220] = True
+    vectors = _wall_vectors(semantic)
+
+    refined = _refine_wall_vectors_from_raster(source, vectors)
+    horizontal = max(
+        (item for item in refined if abs(item.start_px[1] - item.end_px[1]) < 1e-6),
+        key=lambda item: abs(item.end_px[0] - item.start_px[0]),
+    )
+
+    assert len(refined) == len(vectors)
+    assert horizontal.start_px[1] == pytest.approx(47.5, abs=1.0)
+    assert horizontal.thickness_px == pytest.approx(16.0, abs=2.0)
+
+
 def test_semantic_room_mask_preserves_concave_polygon() -> None:
     mask = np.zeros((80, 100), dtype=np.bool_)
     mask[10:70, 10:45] = True
@@ -139,6 +247,113 @@ def test_semantic_room_mask_preserves_concave_polygon() -> None:
     assert len(records) == 1
     assert len(records[0]["polygon_px"]) >= 6
     assert records[0]["confidence"] == pytest.approx(0.9)
+
+
+def test_review_required_semantic_object_stays_in_editable_draft() -> None:
+    detection = SemanticDetection(
+        id="semantic:fixture:1",
+        class_name="Sink",
+        symbol_class="sink",
+        bbox_px=(20, 30, 40, 50),
+        confidence=0.52,
+        pixel_area=80,
+        review_required=True,
+        promote_to_bim=True,
+    )
+    result = SemanticRecognitionResult(
+        input_path="source.png",
+        input_sha256="a" * 64,
+        model_version="test",
+        model_sha256="b" * 64,
+        license_scope="internal_eval_only",
+        production_authorized=False,
+        source_size=(100, 100),
+        model_input_size=(96, 96),
+        wall_pixels=0,
+        detections=[detection],
+        counts={"Sink": 1},
+        inference_ms=1.0,
+        total_ms=2.0,
+    )
+
+    proposals = OnnxFloorPlanSemanticRecognizer.symbol_proposals(
+        result,
+        source_ref_ids=["source"],
+    )
+
+    assert len(proposals) == 1
+    assert proposals[0].symbol_class == "sink"
+    assert proposals[0].review_required is True
+
+
+def test_review_required_opening_cannot_invent_a_wall() -> None:
+    detection = SemanticDetection(
+        id="semantic:door:1",
+        class_name="Door",
+        symbol_class="door",
+        bbox_px=(20, 30, 40, 50),
+        confidence=0.52,
+        pixel_area=80,
+        review_required=True,
+        promote_to_bim=True,
+    )
+    result = SemanticRecognitionResult(
+        input_path="source.png",
+        input_sha256="a" * 64,
+        model_version="test",
+        model_sha256="b" * 64,
+        license_scope="internal_eval_only",
+        production_authorized=False,
+        source_size=(100, 100),
+        model_input_size=(96, 96),
+        wall_pixels=0,
+        detections=[detection],
+        counts={"Door": 1},
+        inference_ms=1.0,
+        total_ms=2.0,
+    )
+
+    proposals = OnnxFloorPlanSemanticRecognizer.wall_proposals(
+        result,
+        source_ref_ids=["source"],
+    )
+
+    assert proposals == []
+
+
+def test_confident_opening_cannot_invent_a_wall_without_global_structure() -> None:
+    detection = SemanticDetection(
+        id="semantic:door:1",
+        class_name="Door",
+        symbol_class="door",
+        bbox_px=(20, 30, 40, 50),
+        confidence=0.95,
+        pixel_area=80,
+        review_required=False,
+        promote_to_bim=True,
+    )
+    result = SemanticRecognitionResult(
+        input_path="source.png",
+        input_sha256="a" * 64,
+        model_version="test",
+        model_sha256="b" * 64,
+        license_scope="internal_eval_only",
+        production_authorized=False,
+        source_size=(100, 100),
+        model_input_size=(96, 96),
+        wall_pixels=0,
+        detections=[detection],
+        counts={"Door": 1},
+        inference_ms=1.0,
+        total_ms=2.0,
+    )
+
+    proposals = OnnxFloorPlanSemanticRecognizer.wall_proposals(
+        result,
+        source_ref_ids=["source"],
+    )
+
+    assert proposals == []
 
 
 def _minimal_graph(level_id: str = "L1") -> dict[str, object]:
@@ -266,9 +481,7 @@ def test_door_operation_semantics_survive_ifc_and_glb_export(tmp_path: Path) -> 
     unresolved["openings"][0]["handing"] = "unknown"
     certificate = PlanGraphVerifier().verify(unresolved, permit_review_required=True)
     assert certificate.release_allowed is False
-    assert "UNRESOLVED_DOOR_OPERATION" in {
-        violation.code for violation in certificate.violations
-    }
+    assert "UNRESOLVED_DOOR_OPERATION" in {violation.code for violation in certificate.violations}
 
 
 def test_coincident_wall_constraints_are_verified_and_break_fail_closed() -> None:
@@ -292,16 +505,12 @@ def test_coincident_wall_constraints_are_verified_and_break_fail_closed() -> Non
         }
     ]
     valid = PlanGraphVerifier().verify(graph, permit_review_required=True)
-    assert "BROKEN_COINCIDENT_CONSTRAINT" not in {
-        violation.code for violation in valid.violations
-    }
+    assert "BROKEN_COINCIDENT_CONSTRAINT" not in {violation.code for violation in valid.violations}
 
     graph["walls"][1]["from"] = [4.1, 0.0]
     broken = PlanGraphVerifier().verify(graph, permit_review_required=True)
     assert broken.release_allowed is False
-    assert "BROKEN_COINCIDENT_CONSTRAINT" in {
-        violation.code for violation in broken.violations
-    }
+    assert "BROKEN_COINCIDENT_CONSTRAINT" in {violation.code for violation in broken.violations}
 
 
 def test_dimension_geometry_must_have_two_distinct_metric_points() -> None:
@@ -321,7 +530,44 @@ def test_dimension_geometry_must_have_two_distinct_metric_points() -> None:
     ]
     certificate = PlanGraphVerifier().verify(graph, permit_review_required=True)
     assert certificate.release_allowed is False
-    assert "INVALID_DIMENSION_GEOMETRY" in {
+    assert "INVALID_DIMENSION_GEOMETRY" in {violation.code for violation in certificate.violations}
+
+
+def test_integrated_appliance_cannot_share_a_casework_solid() -> None:
+    graph = _minimal_graph()
+    fixture_common = {
+        "level_id": "L1",
+        "room_id": "",
+        "center_m": [2.0, 2.0],
+        "base_elevation_m": 0.0,
+        "yaw_deg": 0.0,
+        "required_count": 1,
+        "observed_count": 1,
+        "confidence": 1.0,
+        "uncertainty": 0.0,
+        "source_ref_ids": ["source-L1"],
+        "model_version": "test",
+        "review_state": "accepted",
+    }
+    graph["fixtures"] = [
+        {
+            **fixture_common,
+            "id": "cabinet",
+            "type": "residential-base-cabinet",
+            "size_m": [2.4, 0.6, 0.9],
+        },
+        {
+            **fixture_common,
+            "id": "dishwasher",
+            "type": "residential-dishwasher",
+            "size_m": [0.6, 0.6, 0.85],
+        },
+    ]
+
+    certificate = PlanGraphVerifier().verify(graph, permit_review_required=True)
+
+    assert certificate.release_allowed is False
+    assert "INTEGRATED_APPLIANCE_CASEWORK_COLLISION" in {
         violation.code for violation in certificate.violations
     }
 
@@ -370,9 +616,9 @@ def test_multilevel_assembly_aggregates_level_qualification_fail_closed() -> Non
     )
 
     assert assembled["qualification"]["production_release_eligible"] is False
-    assert "one_or_more_levels_missing_qualification" in assembled["qualification"][
-        "review_reasons"
-    ]
+    assert (
+        "one_or_more_levels_missing_qualification" in assembled["qualification"]["review_reasons"]
+    )
     assert assembled["verification"]["release_allowed"] is False
 
 
@@ -388,6 +634,7 @@ def test_building_pipeline_converts_two_pdf_pages_into_one_model(tmp_path: Path)
         BuildingConversionConfig(
             project_id="two-page-building",
             pdf_dpi=96,
+            allow_primary_only_smoke=True,
             levels=[
                 BuildingLevelInput(
                     source_path=str(pdf_path),
@@ -624,3 +871,24 @@ def test_residential_detection_maps_to_non_box_parametric_family() -> None:
     parts = parametric_family_parts("residential-toilet", (0.7, 0.4, 0.75))
     assert len(parts) >= 4
     assert approved_family_asset_sha256("residential-toilet")
+
+
+@pytest.mark.parametrize(
+    ("family_id", "size", "minimum_parts"),
+    [
+        ("residential-base-cabinet", (1.2, 0.6, 0.9), 5),
+        ("residential-wall-cabinet", (1.0, 0.35, 0.72), 5),
+        ("residential-shower-enclosure", (0.9, 0.9, 2.1), 7),
+        ("structural-column", (0.4, 0.4, 3.0), 3),
+        ("residential-stair", (1.0, 2.8, 1.5), 8),
+    ],
+)
+def test_extended_program_classes_have_semantic_cad_families(
+    family_id: str,
+    size: tuple[float, float, float],
+    minimum_parts: int,
+) -> None:
+    parts = parametric_family_parts(family_id, size)
+
+    assert len(parts) >= minimum_parts
+    assert approved_family_asset_sha256(family_id)

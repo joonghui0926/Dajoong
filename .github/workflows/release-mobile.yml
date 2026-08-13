@@ -17,6 +17,10 @@ on:
         description: Upload the signed AAB and listing to Google Play
         default: false
         type: boolean
+      build_ios:
+        description: Build the iOS archive (requires the paid Apple developer setup)
+        default: false
+        type: boolean
       google_track:
         description: Google Play destination track
         default: internal
@@ -106,7 +110,7 @@ jobs:
       run:
         working-directory: apps/plan2bim-studio/frontend
     env:
-      VITE_STUDIO_API_URL: https://studio-api.builiconstruction.com
+      VITE_STUDIO_API_URL: https://studio-api.dajoongbim.com
       VITE_COGNITO_AUTHORITY: ${{ needs.configuration.outputs.authority }}
       VITE_COGNITO_CLIENT_ID: ${{ needs.configuration.outputs.client_id }}
       VITE_NATIVE_REDIRECT_URI: com.dajoong.plan2bim://auth/callback
@@ -180,6 +184,7 @@ jobs:
         run: rm -f "$DAJOONG_ANDROID_KEYSTORE_PATH"
 
   ios:
+    if: ${{ inputs.build_ios }}
     needs: configuration
     environment: production
     runs-on: macos-15
@@ -188,7 +193,7 @@ jobs:
       run:
         working-directory: apps/plan2bim-studio/frontend
     env:
-      VITE_STUDIO_API_URL: https://studio-api.builiconstruction.com
+      VITE_STUDIO_API_URL: https://studio-api.dajoongbim.com
       VITE_COGNITO_AUTHORITY: ${{ needs.configuration.outputs.authority }}
       VITE_COGNITO_CLIENT_ID: ${{ needs.configuration.outputs.client_id }}
       VITE_NATIVE_REDIRECT_URI: com.dajoong.plan2bim://auth/callback

@@ -1,14 +1,17 @@
-const CACHE = "dajoong-shell-v3";
+const CACHE = "dajoong-shell-v7";
 const SCOPE = self.registration.scope;
 const scoped = (path) => new URL(path, SCOPE).pathname;
 const SHELL = [
   scoped("./"),
   scoped("./studio"),
   scoped("./manifest.webmanifest"),
-  scoped("./brand/dajoong-logo-mark-512.png"),
-  scoped("./sample/source.png"),
-  scoped("./sample/03-plan-graph.json"),
+  scoped("./brand/dajoong-logo-mark.svg"),
 ];
+const NETWORK_FIRST = new Set([
+  scoped("./sample/sample-manifest.json"),
+  scoped("./sample/source.webp"),
+  scoped("./sample/03-plan-graph.json"),
+]);
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
@@ -28,6 +31,17 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET" || url.origin !== self.location.origin || url.pathname.includes("/api/")) return;
   if (request.mode === "navigate") {
     event.respondWith(fetch(request).catch(() => caches.match(scoped("./")).then((response) => response || Response.error())));
+    return;
+  }
+  if (NETWORK_FIRST.has(url.pathname)) {
+    event.respondWith(
+      fetch(request).then((response) => {
+        if (!response.ok) return response;
+        const copy = response.clone();
+        caches.open(CACHE).then((cache) => cache.put(request, copy));
+        return response;
+      }).catch(() => caches.match(request).then((response) => response || Response.error()))
+    );
     return;
   }
   event.respondWith(

@@ -1,5 +1,6 @@
 import { ArrowRight, LoaderCircle, Mail, ShieldCheck } from "lucide-react";
-import { siApple, siKakaotalk } from "simple-icons";
+import appleMarkUrl from "simple-icons/icons/apple.svg";
+import kakaoTalkMarkUrl from "simple-icons/icons/kakaotalk.svg";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -7,6 +8,11 @@ import { authConfigured, enabledAuthProviders, setBearerToken, signIn, userManag
 import { DajoongLogo } from "./DajoongLogo";
 
 type AuthState = "loading" | "signed-out" | "ready" | "error";
+const PENDING_INVITE_KEY = "dajoong-pending-invite-v1";
+
+function invitationFromLocation() {
+  return new URLSearchParams(window.location.search).get("invite")?.trim() ?? "";
+}
 
 function GoogleMark() {
   return <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -17,16 +23,17 @@ function GoogleMark() {
   </svg>;
 }
 
-function BrandMark({ path }: { path: string }) {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d={path} /></svg>;
-}
-
 export function AuthGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>(authConfigured ? "loading" : "ready");
   const [message, setMessage] = useState("");
+  const pendingInvitation = Boolean(
+    invitationFromLocation() || sessionStorage.getItem(PENDING_INVITE_KEY),
+  );
   const beginSignIn = async (provider?: "Google" | "SignInWithApple" | "Kakao") => {
     setMessage("");
     try {
+      const invitation = invitationFromLocation();
+      if (invitation) sessionStorage.setItem(PENDING_INVITE_KEY, invitation);
       const user = await signIn(provider);
       if (user) setState("ready");
     } catch (error) {
@@ -43,7 +50,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
         const params = new URLSearchParams(window.location.search);
         if (params.has("code") && params.has("state")) {
           await manager.signinRedirectCallback();
-          window.history.replaceState({}, document.title, "/studio");
+          const invitation = sessionStorage.getItem(PENDING_INVITE_KEY) ?? "";
+          const restoredPath = invitation
+            ? `/studio?invite=${encodeURIComponent(invitation)}`
+            : "/studio";
+          window.history.replaceState({}, document.title, restoredPath);
         }
         const user = await manager.getUser();
         if (!user || user.expired) {
@@ -71,12 +82,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
         <span className="auth-plane auth-plane-c" />
       </div>
       <DajoongLogo />
-      <div className="auth-copy"><p className="section-kicker">DAJOONG STUDIO</p><h1>Your drawings.<br />Your building data.</h1><p>Sign in to convert plans, review model confidence, and keep corrections connected to the source.</p></div>
+      <div className="auth-copy"><p className="section-kicker">DAJOONG STUDIO</p><h1>Your drawings.<br />Your building data.</h1><p>{pendingInvitation
+        ? "Sign in with your work account to join the company workspace that invited you."
+        : "Sign in to convert plans, review model confidence, and keep corrections connected to the source."
+      }</p></div>
       {message ? <p className="auth-error">{message}</p> : null}
       <div className="auth-provider-list" aria-label="Sign-in options">
         <button className="auth-provider-button auth-provider-primary" onClick={() => void beginSignIn()}>
           <span className="auth-provider-icon"><Mail size={18} strokeWidth={1.8} /></span>
-          <span>Continue with email</span>
+          <span>Continue with work email</span>
           <ArrowRight className="auth-provider-arrow" size={17} strokeWidth={1.8} />
         </button>
         <div className="auth-provider-divider" aria-hidden="true"><span>or continue with</span></div>
@@ -86,17 +100,17 @@ export function AuthGate({ children }: { children: ReactNode }) {
           <span aria-hidden="true" />
         </button> : null}
         {enabledAuthProviders.apple ? <button className="auth-provider-button" onClick={() => void beginSignIn("SignInWithApple")}>
-          <span className="auth-provider-icon auth-brand-symbol apple-mark"><BrandMark path={siApple.path} /></span>
+          <span className="auth-provider-icon auth-brand-symbol apple-mark"><img src={appleMarkUrl} alt="" /></span>
           <span>Continue with Apple</span>
           <span aria-hidden="true" />
         </button> : null}
         {enabledAuthProviders.kakao ? <button className="auth-provider-button kakao-login" onClick={() => void beginSignIn("Kakao")}>
-          <span className="auth-provider-icon auth-brand-symbol kakao-mark"><BrandMark path={siKakaotalk.path} /></span>
+          <span className="auth-provider-icon auth-brand-symbol kakao-mark"><img src={kakaoTalkMarkUrl} alt="" /></span>
           <span>Continue with Kakao</span>
           <span aria-hidden="true" />
         </button> : null}
       </div>
-      <p className="auth-trust-note"><ShieldCheck size={14} strokeWidth={1.8} />Secure workspace access · Your project data stays private</p>
+      <p className="auth-trust-note"><ShieldCheck size={14} strokeWidth={1.8} />Secure workspace access · Company data stays with the company</p>
       <a className="auth-privacy-link" href="/privacy">Privacy and data handling</a>
     </main>
   );

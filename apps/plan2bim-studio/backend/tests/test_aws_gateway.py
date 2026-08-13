@@ -71,6 +71,14 @@ class FakeS3:
         self.deleted.append(parameters["Delete"]["Objects"])
 
 
+class FakeSqs:
+    def __init__(self) -> None:
+        self.sent: list[dict[str, Any]] = []
+
+    def send_message(self, **parameters: Any) -> None:
+        self.sent.append(parameters)
+
+
 class FakeCognito:
     def __init__(self) -> None:
         self.deleted: list[tuple[str, str]] = []
@@ -87,8 +95,10 @@ def gateway() -> AwsJobGateway:
     value.owner_index_name = "owner-id-index"
     value.organization_index_name = "organization-id-index"
     value.retention_seconds = 90 * 86_400
+    value.queue_url = "https://sqs.us-west-2.amazonaws.com/123/jobs.fifo"
     value.ddb = FakeDynamoDb()
     value.s3 = FakeS3()
+    value.sqs = FakeSqs()
     value.cognito = FakeCognito()
     return value
 
@@ -99,13 +109,20 @@ def test_save_persists_dynamodb_expiry() -> None:
         StudioJob(
             id="job1",
             source_name="plan.pdf",
+            source_key="jobs/job1/input/immutable-plan.pdf",
             output_dir="s3://private-artifacts/jobs/job1/output",
             expires_at=2_000_000_000,
+            lease_until=1_900_000_000,
+            submission={"job_id": "job1"},
         )
     )
 
     assert value.ddb.saved is not None
     assert value.ddb.saved["Item"]["expires_at"] == {"N": "2000000000"}
+    assert value.ddb.saved["Item"]["source_key"] == {
+        "S": "jobs/job1/input/immutable-plan.pdf"
+    }
+    assert value.ddb.saved["Item"]["lease_until"] == {"N": "1900000000"}
 
 
 def test_account_deletion_removes_all_object_versions_and_personal_job() -> None:
@@ -135,6 +152,7 @@ def test_recent_jobs_use_account_partition_and_opaque_cursor() -> None:
     assert page.next_cursor
     query = value.ddb.queries[0]
     assert query["KeyConditionExpression"] == "owner_id = :partition"
+    assert "attribute_not_exists(organization_id)" in query["FilterExpression"]
     assert query["ScanIndexForward"] is False
     decoded = value._decode_cursor(page.next_cursor, "owner_id", "user-1")
     assert decoded["owner_id"] == {"S": "user-1"}
@@ -146,3 +164,45 @@ def test_idempotency_key_is_stable_per_account() -> None:
     assert first == AwsJobGateway._new_job_id("user-1", "request-12345678")
     assert first != AwsJobGateway._new_job_id("user-2", "request-12345678")
     assert len(first) == 32
+
+
+def test_fifo_jobs_use_independent_message_groups() -> None:
+    value = gateway()
+    job = StudioJob(
+        id="job1",
+        source_name="plan.pdf",
+        output_dir="s3://private-artifacts/jobs/job1/output",
+        submission={"job_id": "job1", "source_key": "jobs/job1/input/plan.pdf"},
+    )
+
+    value._enqueue(job)
+
+    assert value.sqs.sent[0]["MessageGroupId"] == "job1"
+    assert value.sqs.sent[0]["MessageDeduplicationId"] == "job1"
+
+
+def test_source_artifact_uses_immutable_uploaded_key() -> None:
+    value = gateway()
+    job = StudioJob(
+        id="job1",
+        source_name="plan.pdf",
+        source_key="jobs/job1/input/nonce-plan.pdf",
+        output_dir="s3://private-artifacts/jobs/job1/output",
+    )
+
+    assert value.artifact_key(job, "source") == "jobs/job1/input/nonce-plan.pdf"
+
+
+def test_duplicate_worker_delivery_does_not_reprocess_active_lease() -> None:
+    value = gateway()
+    active = StudioJob(
+        id="job1",
+        status="running",
+        source_name="plan.pdf",
+        source_key="jobs/job1/input/plan.pdf",
+        output_dir="s3://private-artifacts/jobs/job1/output",
+        lease_until=4_102_444_800,
+    )
+    value.get = lambda _job_id: active  # type: ignore[method-assign]
+
+    assert value.process_message({"job_id": "job1"}) is active

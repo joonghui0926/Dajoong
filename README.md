@@ -13,7 +13,7 @@ CPU conversion service and the shared web, Android, and iOS Studio clients.
 
 The browser and mobile bundles never contain ONNX checkpoints, model parameters,
 server credentials, or an inference runtime. All conversions run on Dajoong-owned
-AWS services through `https://studio-api.builiconstruction.com`. The public
+AWS services through `https://studio-api.dajoongbim.com`. The public
 Cloudflare API proxy signs origin requests; direct App Runner job access is denied.
 
 ## Private model delivery

@@ -58,6 +58,7 @@ class ProgramEntity(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(min_length=1, max_length=160)
+    proposal_id: str = Field(default="", max_length=160)
     level_id: str = Field(min_length=1, max_length=160)
     confidence: float = Field(ge=0, le=1)
     uncertainty: float = Field(ge=0, le=1)
@@ -419,7 +420,7 @@ class BimProgramCompiler:
             openings.append(
                 {
                     "id": opening.id,
-                    "source_entity_id": opening.id,
+                    "source_entity_id": opening.proposal_id or opening.id,
                     "level_id": opening.level_id,
                     "type": opening.kind,
                     "wall_id": opening.wall_id,
@@ -438,7 +439,7 @@ class BimProgramCompiler:
         fixtures = [
             {
                 "id": fixture.id,
-                "source_entity_id": fixture.id,
+                "source_entity_id": fixture.proposal_id or fixture.id,
                 "level_id": fixture.level_id,
                 "type": fixture.family_id,
                 "family_id": fixture.family_id,
@@ -637,10 +638,14 @@ class BimProgramCompiler:
 
     @staticmethod
     def _evidence_fields(entity: Any) -> dict[str, Any]:
-        return {
+        fields = {
             "confidence": entity.confidence,
             "uncertainty": entity.uncertainty,
             "source_ref_ids": list(entity.source_ref_ids),
             "model_version": entity.model_version,
             "review_state": entity.review_state,
         }
+        proposal_id = str(getattr(entity, "proposal_id", ""))
+        if proposal_id:
+            fields["source_entity_id"] = proposal_id
+        return fields

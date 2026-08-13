@@ -76,15 +76,48 @@ def test_production_origin_secret_fails_closed(monkeypatch) -> None:
 def test_private_api_responses_are_not_cached_and_uploads_are_bounded(monkeypatch) -> None:
     monkeypatch.setenv("DAJOONG_MAX_UPLOAD_BYTES", str(1024 * 1024))
     with TestClient(main.app) as client:
-        listed = client.get("/api/jobs")
+        listed = client.get("/api/jobs", headers={"X-Request-ID": "request123"})
         assert listed.headers["cache-control"] == "private, no-store"
         assert listed.headers["x-content-type-options"] == "nosniff"
+        assert listed.headers["x-request-id"] == "request123"
         oversized = client.post(
             "/api/jobs",
             data={"pixels_per_meter": "100"},
             files={"drawing": ("oversized.png", b"0" * (1024 * 1024 + 1), "image/png")},
         )
         assert oversized.status_code == 413
+
+
+def test_conversion_rejects_before_persistence_when_full_runtime_is_unavailable(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(main, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(main, "store", JobStore(tmp_path))
+    monkeypatch.setattr(
+        main,
+        "_require_conversion_runtime",
+        lambda: (_ for _ in ()).throw(
+            main.HTTPException(
+                status_code=503,
+                detail={
+                    "code": "ARCHITECTURAL_RUNTIME_UNAVAILABLE",
+                    "message": "Full drawing conversion is temporarily unavailable.",
+                },
+            )
+        ),
+    )
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/api/jobs",
+            data={"pixels_per_meter": "100"},
+            files={"drawing": ("plan.png", b"valid-size-placeholder", "image/png")},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "ARCHITECTURAL_RUNTIME_UNAVAILABLE"
+    assert list(tmp_path.glob("*")) == []
 
 
 def test_import_patch_and_download(tmp_path, monkeypatch) -> None:
@@ -172,6 +205,17 @@ def test_import_patch_and_download(tmp_path, monkeypatch) -> None:
 def test_pdf_job_preserves_page_and_exposes_render(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(main, "DATA_ROOT", tmp_path)
     monkeypatch.setattr(main, "store", JobStore(tmp_path))
+    monkeypatch.setattr(main, "_require_conversion_runtime", lambda: None)
+    original_conversion_runner = main._run_conversion
+    monkeypatch.setattr(
+        main,
+        "_run_conversion",
+        lambda job_id, source_path, config: original_conversion_runner(
+            job_id,
+            source_path,
+            config.model_copy(update={"allow_primary_only_smoke": True}),
+        ),
+    )
     fixture = (
         Path(__file__).resolve().parents[4]
         / "modules"
@@ -208,6 +252,16 @@ def test_pdf_job_preserves_page_and_exposes_render(tmp_path, monkeypatch) -> Non
 def test_building_job_assembles_multiple_pdf_pages(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(main, "DATA_ROOT", tmp_path)
     monkeypatch.setattr(main, "store", JobStore(tmp_path))
+    monkeypatch.setattr(main, "_require_conversion_runtime", lambda: None)
+    original_building_runner = main._run_building_conversion
+    monkeypatch.setattr(
+        main,
+        "_run_building_conversion",
+        lambda job_id, config: original_building_runner(
+            job_id,
+            config.model_copy(update={"allow_primary_only_smoke": True}),
+        ),
+    )
     fixture = (
         Path(__file__).resolve().parents[4]
         / "modules"

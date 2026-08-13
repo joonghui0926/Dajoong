@@ -1,10 +1,20 @@
 import { Building2, ChevronRight, FileImage, FolderClock, LoaderCircle, Plus, Trash2, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 import type { PlanGraph } from "../types";
 import { authFetch } from "../auth";
+import {
+  checkoutContextFromPaymentRequired,
+  loadCheckoutContext,
+  type CheckoutContext,
+} from "../billing";
 import { studioApiUrl } from "../serverApi";
+import { AsyncFeatureLoading, reliableLazy } from "./AsyncFeatureBoundary";
+
+const CheckoutDialog = reliableLazy(async () => ({
+  default: (await import("./CheckoutDialog")).CheckoutDialog,
+}));
 
 interface BuildingLevelDraft {
   id: string;
@@ -34,6 +44,7 @@ interface RecentJob {
   updated_at: number;
   version: number;
   graph_sha256?: string;
+  scope?: "personal" | "organization";
 }
 
 export function ConversionDialog({ open, onClose, onStatus, onComplete }: ConversionDialogProps) {
@@ -41,48 +52,77 @@ export function ConversionDialog({ open, onClose, onStatus, onComplete }: Conver
   const [projectId, setProjectId] = useState("dajoong-project");
   const [levelId, setLevelId] = useState("L1");
   const [levelName, setLevelName] = useState("Level 1");
-  const [pixelsPerMeter, setPixelsPerMeter] = useState("100");
+  const [pixelsPerMeter, setPixelsPerMeter] = useState("");
   const [height, setHeight] = useState("3.0");
   const [thickness, setThickness] = useState("0.12");
   const [pageNumber, setPageNumber] = useState("1");
   const [pdfDpi, setPdfDpi] = useState("300");
   const [buildingMode, setBuildingMode] = useState(false);
   const [buildingLevels, setBuildingLevels] = useState<BuildingLevelDraft[]>([
-    { id: "L1", name: "Ground floor", page: "1", elevation: "0", pixelsPerMeter: "100" },
-    { id: "L2", name: "Second floor", page: "2", elevation: "3", pixelsPerMeter: "100" },
+    { id: "L1", name: "Ground floor", page: "1", elevation: "0", pixelsPerMeter: "" },
+    { id: "L2", name: "Second floor", page: "2", elevation: "3", pixelsPerMeter: "" },
   ]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [recentJobs, setRecentJobs] = useState<RecentJob[]>([]);
   const [recentLoading, setRecentLoading] = useState(false);
+  const [billingContext, setBillingContext] = useState<CheckoutContext | null>(null);
+  const [checkout, setCheckout] = useState<{
+    context: CheckoutContext;
+    requiredUnits: number;
+  } | null>(null);
+  const operationInFlightRef = useRef(false);
+  const idempotencyKeyRef = useRef(crypto.randomUUID());
+
+  useEffect(() => {
+    idempotencyKeyRef.current = crypto.randomUUID();
+  }, [buildingLevels, buildingMode, file, height, levelId, levelName, pageNumber, pdfDpi, pixelsPerMeter, projectId, thickness]);
 
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
     setRecentLoading(true);
-    void authFetch(studioApiUrl("/api/jobs?scope=personal&limit=5"), { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) return;
-        const page = (await response.json()) as { items?: RecentJob[] };
-        setRecentJobs(page.items ?? []);
+    void Promise.all([
+      authFetch(studioApiUrl("/api/jobs?scope=personal&limit=5"), {
+        signal: controller.signal,
+      }).then(async (response) => response.ok
+        ? ((await response.json()) as { items?: RecentJob[] }).items ?? []
+        : []),
+      authFetch(studioApiUrl("/api/jobs?scope=organization&limit=5"), {
+        signal: controller.signal,
+      }).then(async (response) => response.ok
+        ? ((await response.json()) as { items?: RecentJob[] }).items ?? []
+        : []),
+    ])
+      .then(([personal, organization]) => {
+        setRecentJobs([
+          ...organization.map((job) => ({ ...job, scope: "organization" as const })),
+          ...personal.map((job) => ({ ...job, scope: "personal" as const })),
+        ]);
       })
       .catch(() => undefined)
       .finally(() => setRecentLoading(false));
+    void loadCheckoutContext().then(setBillingContext).catch(() => undefined);
     return () => controller.abort();
   }, [open]);
 
   if (!open) return null;
 
   const isPdf = file?.type === "application/pdf" || file?.name.toLowerCase().endsWith(".pdf");
+  const validScale = buildingMode
+    ? buildingLevels.every((level) => Number.isFinite(Number(level.pixelsPerMeter)) && Number(level.pixelsPerMeter) > 0)
+    : Number.isFinite(Number(pixelsPerMeter)) && Number(pixelsPerMeter) > 0;
 
   const openRecent = async (job: RecentJob) => {
+    if (operationInFlightRef.current) return;
+    operationInFlightRef.current = true;
     setSubmitting(true);
     setError("");
     try {
       const [jobResponse, graphResponse, renderResponse] = await Promise.all([
         authFetch(studioApiUrl(`/api/jobs/${job.id}`)),
-        authFetch(studioApiUrl(`/api/jobs/${job.id}/artifacts/corrected-graph`)).then(
-          async (response) => response.ok ? response : authFetch(studioApiUrl(`/api/jobs/${job.id}/artifacts/graph`)),
+        authFetch(studioApiUrl(`/api/jobs/${job.id}/artifacts/corrected-graph?delivery=lazy`)).then(
+          async (response) => response.ok ? response : authFetch(studioApiUrl(`/api/jobs/${job.id}/artifacts/graph?delivery=lazy`)),
         ),
         authFetch(studioApiUrl(`/api/jobs/${job.id}/artifacts/render`)),
       ]);
@@ -99,14 +139,17 @@ export function ConversionDialog({ open, onClose, onStatus, onComplete }: Conver
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not open project");
     } finally {
+      operationInFlightRef.current = false;
       setSubmitting(false);
     }
   };
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
+  const startConversion = async () => {
     if (!file) return setError("Choose a drawing or PDF first.");
     if (buildingMode && !isPdf) return setError("Building set mode requires a multi-page PDF.");
+    if (!validScale) return setError("Enter a verified pixels-per-meter scale for every level.");
+    if (operationInFlightRef.current) return;
+    operationInFlightRef.current = true;
     setSubmitting(true);
     setError("");
     try {
@@ -128,6 +171,7 @@ export function ConversionDialog({ open, onClose, onStatus, onComplete }: Conver
               elevation_m: Number(level.elevation),
               nominal_height_m: Number(height),
               pixels_per_meter: Number(level.pixelsPerMeter),
+              scale_source: "user_supplied",
               wall_thickness_m: Number(thickness),
             })),
             vertical_connections: [],
@@ -135,6 +179,7 @@ export function ConversionDialog({ open, onClose, onStatus, onComplete }: Conver
         );
       } else {
         body.set("pixels_per_meter", pixelsPerMeter);
+        body.set("scale_source", "user_supplied");
         body.set("project_id", projectId);
         body.set("level_id", levelId);
         body.set("level_name", levelName);
@@ -145,9 +190,15 @@ export function ConversionDialog({ open, onClose, onStatus, onComplete }: Conver
       }
       const response = await authFetch(studioApiUrl(endpoint), {
         method: "POST",
-        headers: { "Idempotency-Key": crypto.randomUUID() },
+        headers: { "Idempotency-Key": idempotencyKeyRef.current },
         body,
-      });
+      }, 120_000);
+      const paymentRequired = await checkoutContextFromPaymentRequired(response);
+      if (paymentRequired) {
+        setBillingContext(paymentRequired.context);
+        setCheckout(paymentRequired);
+        return;
+      }
       if (!response.ok) throw new Error(await response.text());
       const job = (await response.json()) as { id: string; status: string; error?: string };
       onStatus(`Conversion ${job.id.slice(0, 8)} queued`);
@@ -156,7 +207,7 @@ export function ConversionDialog({ open, onClose, onStatus, onComplete }: Conver
       );
       if (finished.status === "failed") throw new Error(finished.error || "conversion failed");
       const [graphResponse, renderResponse] = await Promise.all([
-        authFetch(studioApiUrl(`/api/jobs/${job.id}/artifacts/graph`)),
+        authFetch(studioApiUrl(`/api/jobs/${job.id}/artifacts/graph?delivery=lazy`)),
         authFetch(studioApiUrl(`/api/jobs/${job.id}/artifacts/render`)),
       ]);
       if (!graphResponse.ok) throw new Error("conversion completed without a PlanGraph");
@@ -167,12 +218,19 @@ export function ConversionDialog({ open, onClose, onStatus, onComplete }: Conver
         graphSha256: finished.graph_sha256,
       });
       onStatus(`Conversion ready · ${graph.walls.length} walls · ${graph.rooms.length} rooms`);
+      idempotencyKeyRef.current = crypto.randomUUID();
       onClose();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not start conversion");
     } finally {
+      operationInFlightRef.current = false;
       setSubmitting(false);
     }
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    void startConversion();
   };
 
   return (
@@ -188,7 +246,7 @@ export function ConversionDialog({ open, onClose, onStatus, onComplete }: Conver
         </div>
         {recentLoading || recentJobs.length ? (
           <section className="recent-projects" aria-label="Recent projects">
-            <div className="recent-projects-heading"><FolderClock size={15} /><span>Recent projects</span>{recentLoading ? <LoaderCircle className="spin" size={13} /> : null}</div>
+            <div className="recent-projects-heading"><FolderClock size={15} /><span>Recent account and company projects</span>{recentLoading ? <LoaderCircle className="spin" size={13} /> : null}</div>
             <div className="recent-project-list">
               {recentJobs.map((job) => (
                 <button
@@ -197,7 +255,7 @@ export function ConversionDialog({ open, onClose, onStatus, onComplete }: Conver
                   disabled={submitting || !["complete", "review_required"].includes(job.status)}
                   onClick={() => void openRecent(job)}
                 >
-                  <span><strong>{job.project_id}</strong><small>{job.source_name} · {formatRelativeTime(job.updated_at)}</small></span>
+                  <span><strong>{job.project_id}</strong><small>{job.scope === "organization" ? "Company" : "Personal"} · {job.source_name} · {formatRelativeTime(job.updated_at)}</small></span>
                   <em>{job.status.replaceAll("_", " ")}</em>
                   <ChevronRight size={15} />
                 </button>
@@ -233,15 +291,35 @@ export function ConversionDialog({ open, onClose, onStatus, onComplete }: Conver
           <BuildingLevelEditor levels={buildingLevels} onChange={setBuildingLevels} />
         ) : null}
         <p className="scale-help">{buildingMode ? "Each page keeps its own scale and elevation. Vertical connections stay empty until confirmed, so the converter does not invent stairs." : "Use a known dimension or sheet metadata for scale. Physical size is kept explicit and auditable."}</p>
+        {billingContext?.billing_enforced ? (
+          <div className="conversion-credit-note">
+            <span>{billingContext.free_units_remaining ? "First drawing free" : `${billingContext.paid_units} paid credits`}</span>
+            <small>Then {billingContext.unit_label} · no subscription</small>
+          </div>
+        ) : null}
         {error ? <div className="dialog-error">{error}</div> : null}
         <div className="dialog-actions">
           <button type="button" className="secondary-button" onClick={onClose} disabled={submitting}>Cancel</button>
-          <button type="submit" className="primary-button" disabled={submitting || !file}>
+          <button type="submit" className="primary-button" disabled={submitting || !file || !validScale}>
             {submitting ? <LoaderCircle className="spin" size={16} /> : null}
-            {submitting ? "Converting…" : "Start conversion"}
+            {submitting ? "Converting…" : billingContext?.free_units_remaining ? "Convert first drawing free" : "Start conversion"}
           </button>
         </div>
       </form>
+      {checkout ? (
+        <Suspense fallback={<AsyncFeatureLoading label="Preparing secure checkout" />}>
+          <CheckoutDialog
+            context={checkout.context}
+            requiredUnits={checkout.requiredUnits}
+            onClose={() => setCheckout(null)}
+            onPaid={() => {
+              setCheckout(null);
+              void loadCheckoutContext().then(setBillingContext).catch(() => undefined);
+              void startConversion();
+            }}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }
@@ -266,7 +344,7 @@ function BuildingLevelEditor({
     onChange(levels.map((level, itemIndex) => itemIndex === index ? { ...level, ...changes } : level));
   return (
     <section className="building-level-editor">
-      <div className="building-level-heading"><div><span>PDF LEVEL MAP</span><b>{levels.length} levels</b></div><button type="button" onClick={() => onChange([...levels, { id: `L${levels.length + 1}`, name: `Level ${levels.length + 1}`, page: String(levels.length + 1), elevation: String(levels.length * 3), pixelsPerMeter: levels.at(-1)?.pixelsPerMeter ?? "100" }])}><Plus size={14} /> Add level</button></div>
+      <div className="building-level-heading"><div><span>PDF LEVEL MAP</span><b>{levels.length} levels</b></div><button type="button" onClick={() => onChange([...levels, { id: `L${levels.length + 1}`, name: `Level ${levels.length + 1}`, page: String(levels.length + 1), elevation: String(levels.length * 3), pixelsPerMeter: "" }])}><Plus size={14} /> Add level</button></div>
       <div className="building-level-labels"><span>ID</span><span>Name</span><span>Page</span><span>Elevation</span><span>Scale</span><i /></div>
       {levels.map((level, index) => (
         <div className="building-level-row" key={`${level.id}-${index}`}>

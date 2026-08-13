@@ -32,6 +32,10 @@ import {
   snapRoomBoundaryPoint,
 } from "../roomBoundary";
 import {
+  MAX_VISIBLE_ROOM_HANDLES,
+  visibleRoomHandleIndices,
+} from "../roomHandleGeometry";
+import {
   endpointFromLengthAngle,
   lengthAndAngle,
   parseAngleInput,
@@ -99,6 +103,9 @@ interface PlanViewportProps {
   rehostOpeningId: string | null;
   onPickOpeningHost: (wallId: string, point: [number, number]) => void;
   onCancelOpeningRehost: () => void;
+  placingOpening: boolean;
+  onPlaceOpening: (wallId: string, point: [number, number]) => void;
+  onCancelOpeningPlacement: () => void;
 }
 
 interface DragState {
@@ -121,6 +128,12 @@ interface NavigationDragState {
   pointerId: number;
   lastClientX: number;
   lastClientY: number;
+}
+
+interface ConstructionPointerState {
+  pointerId: number;
+  clientStart: [number, number];
+  worldStart: [number, number];
 }
 
 interface PinchState {
@@ -178,11 +191,15 @@ export function PlanViewport({
   rehostOpeningId,
   onPickOpeningHost,
   onCancelOpeningRehost,
+  placingOpening,
+  onPlaceOpening,
+  onCancelOpeningPlacement,
 }: PlanViewportProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const lengthInputRef = useRef<HTMLInputElement>(null);
   const angleInputRef = useRef<HTMLInputElement>(null);
   const navigationDragRef = useRef<NavigationDragState | null>(null);
+  const constructionPointerRef = useRef<ConstructionPointerState | null>(null);
   const touchPointersRef = useRef(new Map<number, [number, number]>());
   const pinchRef = useRef<PinchState | null>(null);
   const lastCyclePickRef = useRef<LastCyclePick | null>(null);
@@ -199,6 +216,10 @@ export function PlanViewport({
   const [snapLabel, setSnapLabel] = useState("");
   const [precisionLength, setPrecisionLength] = useState("");
   const [precisionAngle, setPrecisionAngle] = useState("");
+  const [openingPlacementTarget, setOpeningPlacementTarget] = useState<{
+    wallId: string;
+    point: [number, number];
+  } | null>(null);
   const bounds = useMemo(() => graphBounds(graph, levelId), [graph, levelId]);
   const selection = selections.at(-1) ?? null;
   const isSelected = (collection: Selection["collection"], id: string) =>
@@ -356,6 +377,8 @@ export function PlanViewport({
 
   const onPlanWheel = (event: ReactWheelEvent<SVGSVGElement>) => {
     event.preventDefault();
+    event.stopPropagation();
+    event.nativeEvent.stopImmediatePropagation();
     const anchor = toRawWorld(event);
     if (!anchor) return;
     zoomAt(anchor, Math.exp(event.deltaY * 0.0015));
@@ -541,6 +564,26 @@ export function PlanViewport({
     window.addEventListener("keydown", cancelRehost, true);
     return () => window.removeEventListener("keydown", cancelRehost, true);
   }, [onCancelOpeningRehost, rehostOpeningId]);
+
+  useEffect(() => {
+    if (!placingOpening) {
+      setOpeningPlacementTarget(null);
+      return;
+    }
+    setHoverCycle(null);
+    lastCyclePickRef.current = null;
+    setSelectionWindow(null);
+    const cancelPlacement = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      onCancelOpeningPlacement();
+    };
+    window.addEventListener("keydown", cancelPlacement, true);
+    return () => window.removeEventListener("keydown", cancelPlacement, true);
+  }, [onCancelOpeningPlacement, placingOpening]);
 
   useEffect(() => {
     if (activeTool !== "object" || !placementFamily) return;
@@ -747,6 +790,18 @@ export function PlanViewport({
       return;
     }
     if (!drag) {
+      if (placingOpening) {
+        const target = (event.target as Element).closest<SVGElement>("[data-host-wall-id]");
+        const point = toRawWorld(event);
+        if (!target?.dataset.hostWallId || !point) {
+          setOpeningPlacementTarget(null);
+          setSnapLabel("Move over a wall");
+          return;
+        }
+        setOpeningPlacementTarget({ wallId: target.dataset.hostWallId, point });
+        setSnapLabel("Click to place a 900 mm door");
+        return;
+      }
       if (activeTool === "object" && placementFamily) {
         const snap = toWorld(event);
         const placement = fixturePlacementAt(graph, placementFamily, levelId, snap.point, placementYaw);
@@ -928,16 +983,46 @@ export function PlanViewport({
       setCursorPoint(snap.point);
       setPrecisionLength("");
       setPrecisionAngle("");
+      constructionPointerRef.current = {
+        pointerId: event.pointerId,
+        clientStart: [event.clientX, event.clientY],
+        worldStart: snap.point,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
       setSnapLabel("Type a length, then Enter · Tab adds an angle");
       return;
     }
     completeConstruction(resolvePrecisionEndpoint(snap.point));
   };
 
+  const finishConstructionPointer = (event: ReactPointerEvent<SVGSVGElement>): boolean => {
+    const pointer = constructionPointerRef.current;
+    if (!pointer || pointer.pointerId !== event.pointerId) return false;
+    constructionPointerRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    const movedPixels = Math.hypot(
+      event.clientX - pointer.clientStart[0],
+      event.clientY - pointer.clientStart[1],
+    );
+    if (movedPixels < 5) return false;
+    const snap = toWorld(event, pointer.worldStart);
+    if (distanceMeters(pointer.worldStart, snap.point) < 0.05) return true;
+    if (activeTool === "wall") onCreateWall(pointer.worldStart, snap.point);
+    else if (activeTool === "measure") onCreateMeasurement(pointer.worldStart, snap.point);
+    resetConstruction();
+    setSnapLabel(activeTool === "wall" ? "Wall placed · drag anywhere to draw another" : "Measurement placed");
+    return true;
+  };
+
   const roomItems = hidden.has("rooms") ? [] : graph.rooms.filter((item) => item.level_id === levelId && !isEntityHidden("rooms", item.id));
   const wallItems = hidden.has("walls") ? [] : graph.walls.filter((item) => item.level_id === levelId && !isEntityHidden("walls", item.id));
   const openingItems = hidden.has("openings") ? [] : graph.openings.filter((item) => item.level_id === levelId && !isEntityHidden("openings", item.id));
   const fixtureItems = hidden.has("fixtures") ? [] : graph.fixtures.filter((item) => item.level_id === levelId && !isEntityHidden("fixtures", item.id));
+  const detectionReviewItems = (graph.detection_review_candidates ?? []).filter(
+    (item) => item.level_id === levelId,
+  );
   const routeItems = hidden.has("routes") ? [] : graph.routes.filter((item) => item.level_id === levelId && !isEntityHidden("routes", item.id));
   const verticalItems = hidden.has("vertical_connections") ? [] : (graph.vertical_connections ?? []).filter(
     (item) => (item.from_level_id === levelId || item.to_level_id === levelId) && !isEntityHidden("vertical_connections", item.id),
@@ -948,6 +1033,32 @@ export function PlanViewport({
   const dimensionItems = hidden.has("dimensions") ? [] : (graph.dimensions ?? []).filter(
     (item) => item.level_id === levelId && !isEntityHidden("dimensions", item.id),
   );
+  const openingPlacementPreview = useMemo(() => {
+    if (!placingOpening || !openingPlacementTarget) return null;
+    const wall = graph.walls.find((item) => item.id === openingPlacementTarget.wallId);
+    if (!wall) return null;
+    const draft: OpeningEntity = {
+      id: "opening-placement-preview",
+      level_id: levelId,
+      type: "door",
+      wall_id: wall.id,
+      center_m: openingPlacementTarget.point,
+      x_m: 0,
+      width_m: 0.9,
+      height_m: 2.1,
+      sill_height_m: 0,
+      operation_type: "single_swing",
+      handing: "start",
+      swing_side: "positive",
+    };
+    const placement = moveOpeningToPoint(draft, wall, graph.openings, openingPlacementTarget.point);
+    const previewOpening = placement.changes ? { ...draft, ...placement.changes } : draft;
+    return {
+      valid: placement.valid,
+      reason: openingPlacementMessage(placement.reason, placement.conflictId),
+      frame: openingFrame(previewOpening, wall),
+    };
+  }, [graph.openings, graph.walls, levelId, openingPlacementTarget, placingOpening]);
   const visibleSelections: Selection[] = [
     ...roomItems.map((item) => ({ collection: "rooms" as const, id: item.id })),
     ...wallItems.map((item) => ({ collection: "walls" as const, id: item.id })),
@@ -1039,9 +1150,11 @@ export function PlanViewport({
   const activeWindowMatches = activeSelectionRectangle && activeSelectionMode
     ? selectInRectangle(graph, selectableSelections, activeSelectionRectangle, activeSelectionMode)
     : [];
-  const preselected = rehostOpeningId ? null : hoverCycle?.candidates[hoverCycle.index] ?? null;
+  const preselected = rehostOpeningId || placingOpening ? null : hoverCycle?.candidates[hoverCycle.index] ?? null;
   const preselectionFootprint = preselected ? elementFootprint(graph, preselected) : null;
-  const viewportHint = rehostOpeningId
+  const viewportHint = placingOpening
+    ? "Move over a wall · click to place · Escape finishes"
+    : rehostOpeningId
     ? "Pick a highlighted wall · click position is preferred · Escape cancels"
     : activeTool === "select"
     ? selection?.collection === "rooms"
@@ -1059,7 +1172,7 @@ export function PlanViewport({
       <svg
         ref={svgRef}
         viewBox={viewBox}
-        className={`tool-${activeTool}${rehostOpeningId ? " rehosting-opening" : ""}${spacePan ? " space-pan" : ""}${isPanning ? " is-panning" : ""}`}
+        className={`tool-${activeTool}${rehostOpeningId || placingOpening ? " rehosting-opening" : ""}${spacePan ? " space-pan" : ""}${isPanning ? " is-panning" : ""}`}
         onPointerDownCapture={onPlanPointerDownCapture}
         onPointerDown={onCanvasPointerDown}
         onPointerMove={onPointerMove}
@@ -1067,6 +1180,7 @@ export function PlanViewport({
         onAuxClick={(event) => event.button === 1 && event.preventDefault()}
         onPointerUp={(event) => {
           if (finishNavigationPointer(event)) return;
+          if (finishConstructionPointer(event)) return;
           if (selectionWindow) {
             const end = toRawWorld(event) ?? selectionWindow.current;
             const rect = svgRef.current?.getBoundingClientRect();
@@ -1100,6 +1214,10 @@ export function PlanViewport({
         }}
         onPointerCancel={(event) => {
           if (finishNavigationPointer(event)) return;
+          if (constructionPointerRef.current?.pointerId === event.pointerId) {
+            constructionPointerRef.current = null;
+            resetConstruction();
+          }
           setSelectionWindow(null);
           if (drag) onCancelGesture();
           setDrag(null);
@@ -1110,6 +1228,7 @@ export function PlanViewport({
             setGuides([]);
             setCursorPoint(null);
             setPlacementCursor(null);
+            setOpeningPlacementTarget(null);
             setHoverCycle(null);
           }
         }}
@@ -1139,6 +1258,19 @@ export function PlanViewport({
             preserveAspectRatio="none"
           />
         ) : null}
+        <g className="detection-review-layer" aria-label="Unresolved source detections">
+          {detectionReviewItems.map((candidate) => {
+            const [left, top, right, bottom] = candidate.bbox_m;
+            const width = Math.max(0.02, right - left);
+            const height = Math.max(0.02, bottom - top);
+            return (
+              <g key={candidate.id} className="detection-review-candidate">
+                <rect x={left} y={top} width={width} height={height} rx={0.04} />
+                <title>{`${candidate.proposed_type || "unclassified"} · ${candidate.reason} · ${Math.round(candidate.confidence * 100)}%`}</title>
+              </g>
+            );
+          })}
+        </g>
         <g className={selectionExclusionSet.has("rooms") ? "room-layer selection-excluded" : "room-layer"}>
           {roomItems.map((room) => {
             const selected = isSelected("rooms", room.id);
@@ -1166,7 +1298,7 @@ export function PlanViewport({
             const rehostOpening = rehostOpeningId
               ? graph.openings.find((item) => item.id === rehostOpeningId)
               : null;
-            const hostCandidate = Boolean(rehostOpeningId);
+            const hostCandidate = Boolean(rehostOpeningId || placingOpening);
             const currentHost = rehostOpening?.wall_id === wall.id;
             const hostLocked = isEntityLocked("walls", wall.id);
             return (
@@ -1188,6 +1320,15 @@ export function PlanViewport({
                 ].filter(Boolean).join(" ")}
                 onPointerDown={(event) => {
                   event.stopPropagation();
+                  if (placingOpening) {
+                    event.preventDefault();
+                    const point = toRawWorld(event) ?? [
+                      (wall.from[0] + wall.to[0]) / 2,
+                      (wall.from[1] + wall.to[1]) / 2,
+                    ] as [number, number];
+                    onPlaceOpening(wall.id, point);
+                    return;
+                  }
                   if (rehostOpeningId) {
                     event.preventDefault();
                     const point = toRawWorld(event) ?? [
@@ -1626,8 +1767,8 @@ export function PlanViewport({
               }}
           />
         ) : null}
-        {rehostOpeningId ? (
-          <g className="host-pick-layer" aria-label="Available opening host walls">
+        {rehostOpeningId || placingOpening ? (
+          <g className="host-pick-layer" aria-label={placingOpening ? "Walls available for opening placement" : "Available opening host walls"}>
             {wallItems.map((wall) => (
               <g key={`host-pick:${wall.id}`}>
                 <line
@@ -1645,17 +1786,31 @@ export function PlanViewport({
                     (wall.from[0] + wall.to[0]) / 2,
                     (wall.from[1] + wall.to[1]) / 2,
                   ] as [number, number];
-                  onPickOpeningHost(wall.id, point);
+                  if (placingOpening) onPlaceOpening(wall.id, point);
+                  else onPickOpeningHost(wall.id, point);
+                }}
+                onPointerMove={(event) => {
+                  if (!placingOpening) return;
+                  const point = toRawWorld(event);
+                  if (point) setOpeningPlacementTarget({ wallId: wall.id, point });
                 }}
               >
-                <title>{isEntityLocked("walls", wall.id) ? `${wall.id} is locked` : `Use ${wall.id} as host`}</title>
+                <title>{isEntityLocked("walls", wall.id) ? `${wall.id} is locked` : placingOpening ? `Place door on ${wall.id}` : `Use ${wall.id} as host`}</title>
               </line>
               </g>
             ))}
           </g>
         ) : null}
+        {placingOpening && openingPlacementPreview?.frame ? (
+          <g className={`opening-placement-preview${openingPlacementPreview.valid ? "" : " invalid"}`} aria-hidden="true">
+            <line className="opening-cut" x1={openingPlacementPreview.frame.start[0]} y1={openingPlacementPreview.frame.start[1]} x2={openingPlacementPreview.frame.end[0]} y2={openingPlacementPreview.frame.end[1]} />
+            <line className="door-leaf" x1={openingPlacementPreview.frame.hinge[0]} y1={openingPlacementPreview.frame.hinge[1]} x2={openingPlacementPreview.frame.openLeafEnd[0]} y2={openingPlacementPreview.frame.openLeafEnd[1]} />
+            <path className="door-arc" d={openingPlacementPreview.frame.arcPath} />
+            <circle className="door-hinge" cx={openingPlacementPreview.frame.hinge[0]} cy={openingPlacementPreview.frame.hinge[1]} r={0.055} />
+          </g>
+        ) : null}
       </svg>
-      {rehostOpeningId ? (
+      {rehostOpeningId && !placingOpening ? (
         <div className="host-pick-screen-targets" aria-label="Keyboard-selectable opening host walls">
           {wallItems.map((wall) => {
             const midpoint: [number, number] = [
@@ -1800,6 +1955,17 @@ export function PlanViewport({
           </button>
         </div>
       ) : null}
+      {placingOpening ? (
+        <div className={`opening-placement-hud${openingPlacementPreview && !openingPlacementPreview.valid ? " invalid" : ""}`} aria-label="Door placement controls">
+          <div>
+            <span>PLACE OPENING</span>
+            <strong>900 mm single door</strong>
+            <small>Snaps directly to the wall under the pointer</small>
+          </div>
+          <output>{openingPlacementPreview ? (openingPlacementPreview.valid ? "Ready to place" : openingPlacementPreview.reason) : "Move over a wall"}</output>
+          <button type="button" onClick={onCancelOpeningPlacement}>Finish <kbd>Esc</kbd></button>
+        </div>
+      ) : null}
       {rehostOpeningId ? (
         <div className="opening-rehost-hud" aria-label="Pick a new opening host">
           <div>
@@ -1821,7 +1987,7 @@ export function PlanViewport({
           Clear dimensions
         </button>
       ) : null}
-      <div className="snap-readout">{snapLabel || (activeTool === "object" ? "Move over the plan" : activeTool === "measure" ? "Pick two points" : activeTool === "wall" ? "Pick wall start" : "Ready")}</div>
+      <div className="snap-readout">{snapLabel || (placingOpening ? "Move over a wall" : activeTool === "object" ? "Move over the plan" : activeTool === "measure" ? "Pick two points" : activeTool === "wall" ? "Drag or click a wall start" : "Ready")}</div>
       <div className="viewport-hint">{viewportHint}</div>
     </div>
   );
@@ -1865,9 +2031,11 @@ function RoomHandles({
   onRemove: (vertexIndex: number) => void;
 }) {
   if (!room) return null;
+  const visibleIndices = visibleRoomHandleIndices(room.polygon);
+  const denseBoundary = room.polygon.length > MAX_VISIBLE_ROOM_HANDLES;
   return (
     <g className="room-handles">
-      {room.polygon.map((point, index) => {
+      {!denseBoundary ? room.polygon.map((point, index) => {
         const next = room.polygon[(index + 1) % room.polygon.length];
         const midpoint: [number, number] = [
           (point[0] + next[0]) / 2,
@@ -1892,13 +2060,15 @@ function RoomHandles({
             <title>Drag to insert a room boundary vertex</title>
           </rect>
         );
-      })}
-      {room.polygon.map((point, index) => (
+      }) : null}
+      {visibleIndices.map((index) => {
+        const point = room.polygon[index];
+        return (
         <circle
           key={`${room.id}:vertex:${index}`}
           cx={point[0]}
           cy={point[1]}
-          r={0.13}
+          r={denseBoundary ? 0.085 : 0.11}
           onPointerDown={(event) => {
             event.stopPropagation();
             if (event.button !== 0) return;
@@ -1912,7 +2082,8 @@ function RoomHandles({
         >
           <title>Drag vertex · right click to remove</title>
         </circle>
-      ))}
+        );
+      })}
     </g>
   );
 }

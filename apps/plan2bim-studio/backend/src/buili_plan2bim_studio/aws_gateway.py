@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
+import hmac
 import json
 import os
 import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -18,6 +21,14 @@ from .store import StudioJob, StudioJobPage, StudioJobPublic
 
 class JobVersionConflict(RuntimeError):
     """Another writer advanced the job while this request was in flight."""
+
+
+class DurableJobEnqueueError(RuntimeError):
+    """The durable job exists, but its queue notification needs to be retried."""
+
+    def __init__(self, job_id: str) -> None:
+        super().__init__(f"job {job_id} is durable but not yet enqueued")
+        self.job_id = job_id
 
 
 class AwsJobGateway:
@@ -41,10 +52,66 @@ class AwsJobGateway:
         self.sqs = boto3.client("sqs", region_name=region)
         self.cognito = boto3.client("cognito-idp", region_name=region)
         self.user_pool_id = os.environ.get("DAJOONG_USER_POOL_ID", "")
+        self._model_lock = threading.Lock()
         retention_days = int(os.environ.get("DAJOONG_ARTIFACT_RETENTION_DAYS", "90"))
         if not 1 <= retention_days <= 3650:
             raise RuntimeError("DAJOONG_ARTIFACT_RETENTION_DAYS must be between 1 and 3650")
         self.retention_seconds = retention_days * 86_400
+
+    def _private_model_path(self, *, role: str, local_env: str, key_env: str, hash_env: str) -> str:
+        local_path = os.environ.get(local_env, "").strip()
+        if local_path:
+            if not Path(local_path).is_file():
+                raise RuntimeError(f"configured {role} model path does not exist")
+            return local_path
+        model_key = os.environ.get(key_env, "").strip()
+        if not model_key:
+            return ""
+        expected_sha256 = os.environ.get(hash_env, "").strip().lower()
+        cache_root = Path(tempfile.gettempdir()) / "dajoong-private-model"
+        model_path = cache_root / f"{role}-model.onnx"
+        manifest_path = model_path.with_suffix(".onnx.json")
+        with self._model_lock:
+            if not model_path.is_file() or not manifest_path.is_file():
+                cache_root.mkdir(parents=True, exist_ok=True)
+                model_staging = model_path.with_suffix(".onnx.tmp")
+                manifest_staging = manifest_path.with_suffix(".json.tmp")
+                self.s3.download_file(self.bucket, model_key, str(model_staging))
+                self.s3.download_file(self.bucket, f"{model_key}.json", str(manifest_staging))
+                model_staging.replace(model_path)
+                manifest_staging.replace(manifest_path)
+            if expected_sha256:
+                digest = hashlib.sha256()
+                with model_path.open("rb") as model_file:
+                    while chunk := model_file.read(1024 * 1024):
+                        digest.update(chunk)
+                if not hmac.compare_digest(digest.hexdigest(), expected_sha256):
+                    model_path.unlink(missing_ok=True)
+                    manifest_path.unlink(missing_ok=True)
+                    raise RuntimeError(f"private {role} model checksum mismatch")
+        return str(model_path)
+
+    def architectural_model_paths(self) -> tuple[str, str]:
+        global_path = self._private_model_path(
+            role="global-program",
+            local_env="DAJOONG_GLOBAL_PROGRAM_MODEL_PATH",
+            key_env="DAJOONG_GLOBAL_PROGRAM_MODEL_S3_KEY",
+            hash_env="DAJOONG_GLOBAL_PROGRAM_MODEL_SHA256",
+        )
+        local_path = self._private_model_path(
+            role="local-element",
+            local_env="DAJOONG_LOCAL_ELEMENT_MODEL_PATH",
+            key_env="DAJOONG_LOCAL_ELEMENT_MODEL_S3_KEY",
+            hash_env="DAJOONG_LOCAL_ELEMENT_MODEL_SHA256",
+        )
+        if bool(global_path) != bool(local_path):
+            raise RuntimeError(
+                "global-program and local-element model artifacts must be configured together"
+            )
+        if global_path:
+            os.environ["DAJOONG_GLOBAL_PROGRAM_MODEL_PATH"] = global_path
+            os.environ["DAJOONG_LOCAL_ELEMENT_MODEL_PATH"] = local_path
+        return global_path, local_path
 
     @staticmethod
     def _prefix(job_id: str) -> str:
@@ -66,13 +133,31 @@ class AwsJobGateway:
     def _created_at_job(created_at: int, job_id: str) -> str:
         return f"{created_at:010d}#{job_id}"
 
+    def _enqueue(self, job: StudioJob) -> None:
+        if not job.submission:
+            raise RuntimeError(f"job {job.id} has no durable queue submission")
+        parameters = {
+            "QueueUrl": self.queue_url,
+            "MessageBody": json.dumps(job.submission, separators=(",", ":")),
+        }
+        if self.queue_url.endswith(".fifo"):
+            # One group per job preserves ordering without serializing unrelated customers.
+            parameters["MessageGroupId"] = job.id
+            parameters["MessageDeduplicationId"] = job.id
+        self.sqs.send_message(**parameters)
+
+    def _ensure_enqueued(self, job: StudioJob) -> None:
+        try:
+            self._enqueue(job)
+        except Exception as exc:
+            raise DurableJobEnqueueError(job.id) from exc
+
     def create_job(
         self,
         source_name: str,
         source: BinaryIO,
         config: ConversionConfig,
         *,
-        semantic_model: str = "",
         owner_id: str = "",
         organization_id: str = "",
         idempotency_key: str = "",
@@ -82,6 +167,8 @@ class AwsJobGateway:
             try:
                 existing = self.get(job_id)
                 if existing.owner_id == owner_id:
+                    if existing.status == "queued" and existing.submission:
+                        self._ensure_enqueued(existing)
                     return existing
             except KeyError:
                 pass
@@ -98,6 +185,7 @@ class AwsJobGateway:
         job = StudioJob(
             id=job_id,
             source_name=source_name,
+            source_key=source_key,
             project_id=config.project_id,
             output_dir=f"s3://{self.bucket}/{self._prefix(job_id)}/output",
             owner_id=owner_id,
@@ -105,28 +193,22 @@ class AwsJobGateway:
             created_at=now,
             updated_at=now,
             expires_at=self._expires_at(),
-        )
-        try:
-            self.save(job)
-        except JobVersionConflict:
-            return self.get(job_id)
-        message = json.dumps(
-            {
+            submission={
                 "job_id": job_id,
                 "source_name": source_name,
                 "source_key": source_key,
                 "config": config.model_dump(mode="json"),
-                "semantic_model": semantic_model,
-            }
+            },
         )
-        parameters = {
-            "QueueUrl": self.queue_url,
-            "MessageBody": message,
-        }
-        if self.queue_url.endswith(".fifo"):
-            parameters["MessageGroupId"] = "plan2bim"
-            parameters["MessageDeduplicationId"] = job_id
-        self.sqs.send_message(**parameters)
+        try:
+            self.save(job)
+        except JobVersionConflict:
+            self.s3.delete_object(Bucket=self.bucket, Key=source_key)
+            existing = self.get(job_id)
+            if existing.status == "queued" and existing.submission:
+                self._ensure_enqueued(existing)
+            return existing
+        self._ensure_enqueued(job)
         return job
 
     def create_building_job(
@@ -135,7 +217,6 @@ class AwsJobGateway:
         source: BinaryIO,
         config: BuildingConversionConfig,
         *,
-        semantic_model: str = "",
         owner_id: str = "",
         organization_id: str = "",
         idempotency_key: str = "",
@@ -145,6 +226,8 @@ class AwsJobGateway:
             try:
                 existing = self.get(job_id)
                 if existing.owner_id == owner_id:
+                    if existing.status == "queued" and existing.submission:
+                        self._ensure_enqueued(existing)
                     return existing
             except KeyError:
                 pass
@@ -159,6 +242,7 @@ class AwsJobGateway:
         job = StudioJob(
             id=job_id,
             source_name=source_name,
+            source_key=source_key,
             project_id=config.project_id,
             output_dir=f"s3://{self.bucket}/{self._prefix(job_id)}/output",
             owner_id=owner_id,
@@ -166,26 +250,23 @@ class AwsJobGateway:
             created_at=now,
             updated_at=now,
             expires_at=self._expires_at(),
-        )
-        try:
-            self.save(job)
-        except JobVersionConflict:
-            return self.get(job_id)
-        message = json.dumps(
-            {
+            submission={
                 "kind": "building",
                 "job_id": job_id,
                 "source_name": source_name,
                 "source_key": source_key,
                 "config": config.model_dump(mode="json"),
-                "semantic_model": semantic_model,
-            }
+            },
         )
-        parameters = {"QueueUrl": self.queue_url, "MessageBody": message}
-        if self.queue_url.endswith(".fifo"):
-            parameters["MessageGroupId"] = "plan2bim"
-            parameters["MessageDeduplicationId"] = job_id
-        self.sqs.send_message(**parameters)
+        try:
+            self.save(job)
+        except JobVersionConflict:
+            self.s3.delete_object(Bucket=self.bucket, Key=source_key)
+            existing = self.get(job_id)
+            if existing.status == "queued" and existing.submission:
+                self._ensure_enqueued(existing)
+            return existing
+        self._ensure_enqueued(job)
         return job
 
     def save(self, job: StudioJob) -> None:
@@ -198,6 +279,7 @@ class AwsJobGateway:
             "job_id": {"S": job.id},
             "status": {"S": job.status},
             "source_name": {"S": job.source_name},
+            "source_key": {"S": job.source_key},
             "project_id": {"S": job.project_id},
             "output_dir": {"S": job.output_dir},
             "created_at": {"N": str(job.created_at)},
@@ -207,7 +289,11 @@ class AwsJobGateway:
             "version": {"N": str(next_version)},
             "active_revision": {"S": job.active_revision},
             "graph_sha256": {"S": job.graph_sha256},
+            "lease_until": {"N": str(job.lease_until)},
             "error": {"S": job.error},
+            "submission_json": {
+                "S": json.dumps(job.submission, separators=(",", ":"))
+            },
             "result_json": {"S": json.dumps(job.result, separators=(",", ":"))},
         }
         if job.owner_id:
@@ -286,6 +372,7 @@ class AwsJobGateway:
             id=item["job_id"]["S"],
             status=item["status"]["S"],
             source_name=item["source_name"]["S"],
+            source_key=item.get("source_key", {}).get("S", ""),
             project_id=item.get("project_id", {}).get("S", "dajoong-project"),
             output_dir=item["output_dir"]["S"],
             owner_id=item.get("owner_id", {}).get("S", ""),
@@ -296,7 +383,9 @@ class AwsJobGateway:
             version=int(item.get("version", {}).get("N", "0")),
             active_revision=item.get("active_revision", {}).get("S", ""),
             graph_sha256=item.get("graph_sha256", {}).get("S", ""),
+            lease_until=int(item.get("lease_until", {}).get("N", "0")),
             error=item.get("error", {}).get("S", ""),
+            submission=json.loads(item.get("submission_json", {}).get("S", "{}")),
             result=json.loads(item.get("result_json", {}).get("S", "{}")),
         )
         if job.expires_at and job.expires_at <= int(time.time()):
@@ -387,7 +476,11 @@ class AwsJobGateway:
             "TableName": self.table_name,
             "IndexName": index_name,
             "KeyConditionExpression": f"{partition_name} = :partition",
-            "FilterExpression": "expires_at > :now",
+            "FilterExpression": (
+                "expires_at > :now AND attribute_not_exists(organization_id)"
+                if scope == "personal"
+                else "expires_at > :now"
+            ),
             "ExpressionAttributeValues": values,
             "ProjectionExpression": (
                 "job_id, owner_id, organization_id, source_name, project_id, #status, "
@@ -431,7 +524,7 @@ class AwsJobGateway:
             "corrections": "corrections.json",
         }
         if artifact_name == "source":
-            return f"{self._prefix(job.id)}/input/{job.source_name}"
+            return job.source_key or f"{self._prefix(job.id)}/input/{job.source_name}"
         if artifact_name in {"corrected-graph", "corrections"} and job.active_revision:
             filename = output_names[artifact_name]
             return f"{self._prefix(job.id)}/revisions/{job.active_revision}/{filename}"
@@ -446,7 +539,7 @@ class AwsJobGateway:
                     else next(iter(level_results.items()), ("", {}))
                 )
                 if level_result.get("source_kind") == "raster_image":
-                    return f"{self._prefix(job.id)}/input/{job.source_name}"
+                    return job.source_key or f"{self._prefix(job.id)}/input/{job.source_name}"
                 page = int(level_result.get("page_number", 1))
                 return (
                     f"{self._prefix(job.id)}/output/levels/{selected_level_id}/"
@@ -455,7 +548,7 @@ class AwsJobGateway:
             if job.result.get("source_kind") in {"raster_pdf", "vector_pdf"}:
                 page = int(job.result.get("page_number", 1))
                 return f"{self._prefix(job.id)}/output/00-source-page-{page}.png"
-            return f"{self._prefix(job.id)}/input/{job.source_name}"
+            return job.source_key or f"{self._prefix(job.id)}/input/{job.source_name}"
         if is_building:
             output_names.update(
                 {
@@ -499,6 +592,20 @@ class AwsJobGateway:
 
     def read_editable_graph(self, job: StudioJob) -> dict[str, Any]:
         return self.read_json(job, "corrected-graph" if job.active_revision else "graph")
+
+    def read_revision_graph(self, job: StudioJob, graph_sha256: str) -> dict[str, Any]:
+        if len(graph_sha256) != 64 or any(
+            character not in "0123456789abcdef" for character in graph_sha256
+        ):
+            raise KeyError(graph_sha256)
+        response = self.s3.get_object(
+            Bucket=self.bucket,
+            Key=(
+                f"{self._prefix(job.id)}/revisions/{graph_sha256}/"
+                "corrected-plan-graph.json"
+            ),
+        )
+        return json.loads(response["Body"].read())
 
     def write_json(self, job: StudioJob, artifact_name: str, payload: dict[str, Any]) -> None:
         self.s3.put_object(
@@ -565,18 +672,86 @@ class AwsJobGateway:
             key_marker = listing.get("NextKeyMarker")
             version_marker = listing.get("NextVersionIdMarker")
 
+    def renew_lease(self, job_id: str, lease_seconds: int = 900) -> bool:
+        """Extend a running job without advancing the optimistic-lock version."""
+        try:
+            self.ddb.update_item(
+                TableName=self.table_name,
+                Key={"job_id": {"S": job_id}},
+                UpdateExpression="SET lease_until = :lease_until",
+                ConditionExpression="#status = :running",
+                ExpressionAttributeNames={"#status": "status"},
+                ExpressionAttributeValues={
+                    ":running": {"S": "running"},
+                    ":lease_until": {"N": str(int(time.time()) + lease_seconds)},
+                },
+            )
+            return True
+        except Exception as exc:
+            error_code = getattr(exc, "response", {}).get("Error", {}).get("Code", "")
+            if error_code == "ConditionalCheckFailedException":
+                return False
+            raise
+
+    def fail_job(self, job_id: str, error: str) -> None:
+        """Record a bounded public failure without overwriting a completed concurrent result."""
+        for _ in range(3):
+            try:
+                job = self.get(job_id)
+            except KeyError:
+                return
+            if job.status in {"complete", "review_required"}:
+                return
+            job.status = "failed"
+            job.lease_until = 0
+            job.error = error[:2_000]
+            try:
+                self.save(job)
+                return
+            except JobVersionConflict:
+                continue
+
     def process_message(self, message: dict[str, Any]) -> StudioJob:
-        from buili_plan2bim import BuildingPlan2BimConverter, Plan2BimConverter
+        from buili_plan2bim import (
+            BuildingPlan2BimConverter,
+            Plan2BimConverter,
+            require_product_architectural_runtime,
+        )
 
         job = self.get(str(message["job_id"]))
+        now = int(time.time())
+        if job.status in {"complete", "review_required"}:
+            return job
+        if job.status == "running" and job.lease_until > now:
+            return job
+        lease_seconds = int(os.environ.get("DAJOONG_JOB_VISIBILITY_SECONDS", "900"))
+        if not 60 <= lease_seconds <= 43_200:
+            raise RuntimeError("DAJOONG_JOB_VISIBILITY_SECONDS must be between 60 and 43200")
         job.status = "running"
         job.error = ""
-        self.save(job)
+        job.lease_until = now + lease_seconds
+        try:
+            self.save(job)
+        except JobVersionConflict:
+            current = self.get(job.id)
+            if current.status in {"running", "complete", "review_required"}:
+                return current
+            raise
         with tempfile.TemporaryDirectory(prefix=f"dajoong-{job.id[:8]}-") as temporary:
             root = Path(temporary)
             source = root / job.source_name
             output = root / "output"
-            self.s3.download_file(self.bucket, str(message["source_key"]), str(source))
+            source_key = job.source_key or str(message.get("source_key") or "")
+            if not source_key.startswith(f"{self._prefix(job.id)}/input/"):
+                raise ValueError("queue source does not belong to the job")
+            self.s3.download_file(self.bucket, source_key, str(source))
+            global_program_model_path, local_element_model_path = (
+                self.architectural_model_paths()
+            )
+            require_product_architectural_runtime(
+                global_program_model_path or None,
+                local_element_model_path or None,
+            )
             if message.get("kind") == "building":
                 building_config = BuildingConversionConfig.model_validate(message["config"])
                 building_config = building_config.model_copy(
@@ -590,7 +765,8 @@ class AwsJobGateway:
                 converter = BuildingPlan2BimConverter(
                     threads=building_config.threads,
                     batch_size=building_config.batch_size,
-                    semantic_model_path=str(message.get("semantic_model") or "") or None,
+                    global_program_model_path=global_program_model_path or None,
+                    local_element_model_path=local_element_model_path or None,
                 )
                 result = converter.convert(output, building_config)
             else:
@@ -598,7 +774,8 @@ class AwsJobGateway:
                 converter = Plan2BimConverter(
                     threads=config.threads,
                     batch_size=config.batch_size,
-                    semantic_model_path=str(message.get("semantic_model") or "") or None,
+                    global_program_model_path=global_program_model_path or None,
+                    local_element_model_path=local_element_model_path or None,
                 )
                 result = converter.convert(source, output, config)
             for artifact in output.rglob("*"):
@@ -614,6 +791,8 @@ class AwsJobGateway:
                 json.loads(Path(result.plan_graph_path).read_text(encoding="utf-8"))
             )
             job.status = "review_required" if result.review_required else "complete"
+            job.lease_until = 0
+            job.submission = {}
             try:
                 self.save(job)
             except JobVersionConflict:
@@ -628,7 +807,11 @@ class AwsJobGateway:
                     current.result = job.result
                     current.status = job.status
                     current.error = job.error
+                    current.lease_until = 0
+                    current.submission = {}
                     self.save(current)
+                    return current
+                if current.status in {"running", "complete", "review_required"}:
                     return current
                 raise
             return job

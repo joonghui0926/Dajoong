@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   Box,
   ChevronDown,
   ChevronsDown,
@@ -141,6 +142,9 @@ export function ModelTree({
     [graph, levelId, normalizedQuery, prioritiesByKey, reviewOnly],
   );
   const visibleCount = visibleSections.reduce((total, section) => total + section.items.length, 0);
+  const unresolvedDetectionCount = (graph.detection_review_candidates ?? []).filter(
+    (item) => item.level_id === levelId,
+  ).length;
   const visibleCounts = Object.fromEntries(
     visibleSections.map((section) => [section.collection, section.items.length]),
   ) as Partial<Record<CollectionName, number>>;
@@ -183,6 +187,12 @@ export function ModelTree({
         <input type="checkbox" checked={reviewOnly} onChange={(event) => onReviewOnly(event.target.checked)} />
         <span>Only items requiring review</span>
       </label>
+      {unresolvedDetectionCount ? (
+        <div className="detection-review-summary" role="status">
+          <AlertTriangle size={14} />
+          <span><b>{unresolvedDetectionCount}</b> source marks need classification</span>
+        </div>
+      ) : null}
       <div className="tree-navigation-tools" aria-label="Model Browser navigation">
         <span><b>{visibleCount}</b> elements · Shift range · Ctrl add</span>
         <button

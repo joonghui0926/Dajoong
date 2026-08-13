@@ -3,28 +3,40 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field
 
+from .core.asset_catalog import attach_family_assets
 from .core.bim_program import BimProgramCompiler, ProgramEvidence
 from .core.glb_export import export_editable_glb
 from .core.hashing import sha256_file, sha256_json
 from .core.ifc_export import export_ifc
 from .core.model.aec_decode import AecTileProposal
 from .core.model.aec_runtime import ProofCarryingAecRunner
+from .core.model.evidence_pyramid import (
+    FullSheetAecResult,
+    build_evidence_tile_ledger,
+)
 from .core.plan_graph_verification import PlanGraphVerifier
 from .core.proposal_program import MetricLevelContext, build_program_from_tile_proposal
+from .global_program_inference import GlobalProgramOnnxRecognizer
 from .input_document import prepare_drawing
-from .qualification import ModelQualifier, profile_drawing
-from .semantic_recognition import OnnxFloorPlanSemanticRecognizer
-
-PACKAGE_ROOT = Path(__file__).resolve().parent
-DEFAULT_MODEL_PATH = PACKAGE_ROOT / "models" / "aec-global-enclosure-v1.onnx"
-DEFAULT_QUALIFICATION_PATH = (
-    PACKAGE_ROOT / "models" / "aec-global-enclosure-v1.qualification.json"
+from .perception_forest import (
+    SpatialEvidenceGraph,
+    attach_compiled_graph_evidence,
+    build_forest_perception_bundle,
 )
+from .qualification import ModelQualifier, profile_drawing
+from .runtime_registry import (
+    active_semantic_max_side,
+    load_active_runtime,
+    resolve_architectural_runtime,
+    verify_active_runtime,
+)
+from .semantic_recognition import OnnxFloorPlanSemanticRecognizer
+from .semantic_multiview import recognize_semantic_multiview
 
 
 class ConversionError(RuntimeError):
@@ -38,9 +50,13 @@ class ConversionConfig(BaseModel):
 
     project_id: str = Field(default="dajoong-project", min_length=1, max_length=160)
     sheet_id: str = Field(default="", max_length=160)
+    plan_instance_id: str = Field(default="", max_length=220)
     level_id: str = Field(default="L1", min_length=1, max_length=160)
     level_name: str = Field(default="Level 1", min_length=1, max_length=300)
     pixels_per_meter: float = Field(gt=0)
+    scale_source: Literal["user_supplied", "drawing_dimension", "vector_units"] = (
+        "user_supplied"
+    )
     elevation_m: float = 0.0
     nominal_height_m: float = Field(default=3.0, gt=0)
     wall_thickness_m: float = Field(default=0.12, gt=0)
@@ -49,12 +65,16 @@ class ConversionConfig(BaseModel):
     page_number: int = Field(default=1, ge=1)
     pdf_dpi: int = Field(default=300, ge=72, le=600)
     allow_draft_ifc: bool = True
+    allow_primary_only_smoke: bool = False
+    specialist_mode: Literal["architectural", "building_systems", "combined"] = (
+        "architectural"
+    )
 
 
 class ConversionResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "buili.plan2bim-result.v1"
+    schema_version: str = "buili.plan2bim-result.v2"
     input_path: str
     input_sha256: str
     source_render_path: str
@@ -72,6 +92,10 @@ class ConversionResult(BaseModel):
     manifest_path: str
     recognition_path: str = ""
     recognition_overlay_path: str = ""
+    sheet_layout_path: str = ""
+    semantic_multiview_path: str = ""
+    global_program_path: str = ""
+    spatial_evidence_graph_path: str = ""
     complexity_path: str
     qualification_path: str
     difficulty_class: str
@@ -83,6 +107,10 @@ class ConversionResult(BaseModel):
     semantic_model_version: str = ""
     semantic_model_sha256: str = ""
     semantic_production_authorized: bool = False
+    architectural_model_version: str = ""
+    architectural_model_sha256: str = ""
+    architectural_production_authorized: bool = False
+    component_models: dict[str, dict[str, Any]] = Field(default_factory=dict)
     release_allowed: bool
     review_required: bool
     review_reasons: list[str]
@@ -123,24 +151,95 @@ class Plan2BimConverter:
         threads: int = 1,
         batch_size: int = 8,
         semantic_model_path: str | Path | None = None,
-        semantic_max_side: int = 1024,
+        semantic_max_side: int | None = None,
+        global_program_model_path: str | Path | None = None,
+        local_element_model_path: str | Path | None = None,
+        discover_native_candidates: bool | None = None,
+        allow_research_global_program: bool = False,
+        allow_legacy_semantic_teacher: bool = False,
         qualification_path: str | Path | None = None,
     ) -> None:
-        self.model_path = Path(model_path or DEFAULT_MODEL_PATH).resolve()
+        active_runtime = load_active_runtime()
+        if model_path is None:
+            verify_active_runtime(active_runtime)
+            self.model_path = active_runtime.primary_model_path
+            runner_manifest_path = active_runtime.primary_manifest_path
+            expected_primary_sha256 = active_runtime.expected_primary_sha256
+        else:
+            self.model_path = Path(model_path).expanduser().resolve()
+            runner_manifest_path = None
+            expected_primary_sha256 = ""
         self.runner = ProofCarryingAecRunner(
             self.model_path,
+            manifest_path=runner_manifest_path,
+            expected_sha256=expected_primary_sha256,
             threads=threads,
             batch_size=batch_size,
         )
+        if semantic_model_path is not None and global_program_model_path is not None:
+            raise ValueError(
+                "choose the global architectural program or the sealed legacy semantic "
+                "teacher; both cannot execute in one architectural conversion"
+            )
+        if semantic_model_path is not None and not allow_legacy_semantic_teacher:
+            raise ValueError(
+                "the legacy semantic teacher is sealed for explicit research evaluation; "
+                "set allow_legacy_semantic_teacher=True only in that workflow"
+            )
+        if local_element_model_path is not None and global_program_model_path is None:
+            raise ValueError("local_element_model_path requires global_program_model_path")
+        if semantic_model_path is None and global_program_model_path is None:
+            runtime_paths = resolve_architectural_runtime(
+                active_runtime,
+                allow_legacy_semantic_teacher=allow_legacy_semantic_teacher,
+            )
+            semantic_model_path = runtime_paths.legacy_semantic_model_path
+            global_program_model_path = runtime_paths.global_program_model_path
+            local_element_model_path = runtime_paths.local_element_model_path
+        if discover_native_candidates is None:
+            discover_native_candidates = local_element_model_path is not None
+        if (
+            global_program_model_path is not None
+            and local_element_model_path is None
+            and not allow_research_global_program
+        ):
+            raise ValueError(
+                "product architectural conversion requires the native-resolution "
+                "element refiner together with the whole-sheet program"
+            )
+        if (
+            local_element_model_path is not None
+            and not discover_native_candidates
+            and not allow_research_global_program
+        ):
+            raise ValueError(
+                "product architectural conversion cannot disable native candidate discovery"
+            )
+        self.semantic_model_missing = semantic_model_path is None
         self.semantic_recognizer = (
             OnnxFloorPlanSemanticRecognizer(semantic_model_path, threads=threads)
             if semantic_model_path is not None
             else None
         )
+        self.global_program_recognizer = (
+            GlobalProgramOnnxRecognizer(
+                global_program_model_path,
+                threads=threads,
+                require_production=not allow_research_global_program,
+                local_element_model_path=local_element_model_path,
+                discover_native_candidates=discover_native_candidates,
+            )
+            if global_program_model_path is not None
+            else None
+        )
+        if semantic_max_side is None:
+            semantic_max_side = active_semantic_max_side(active_runtime)
         if semantic_max_side < 64:
             raise ValueError("semantic_max_side must be at least 64")
         self.semantic_max_side = semantic_max_side
-        self.qualifier = ModelQualifier(qualification_path or DEFAULT_QUALIFICATION_PATH)
+        self.qualifier = ModelQualifier(
+            qualification_path or active_runtime.qualification_path
+        )
 
     def model_card(self) -> dict[str, Any]:
         card = self.runner.model_card()
@@ -149,6 +248,19 @@ class Plan2BimConverter:
         card["qualification_production_authorized"] = bool(
             self.qualifier.manifest.get("production_authorized", False)
         )
+        if self.global_program_recognizer is not None:
+            card["architectural_global_program"] = {
+                "model_version": self.global_program_recognizer.model_version,
+                "model_sha256": self.global_program_recognizer.model_sha256,
+                "production_authorized": bool(
+                    self.global_program_recognizer.manifest.get(
+                        "production_authorized", False
+                    )
+                ),
+                "local_element_specialist": bool(
+                    self.global_program_recognizer.local_element_recognizer is not None
+                ),
+            }
         card["content_sha256"] = sha256_json(
             {key: value for key, value in card.items() if key != "content_sha256"}
         )
@@ -160,6 +272,18 @@ class Plan2BimConverter:
         output_dir: str | Path,
         config: ConversionConfig,
     ) -> ConversionResult:
+        semantic_required = config.specialist_mode in {"architectural", "combined"}
+        if (
+            semantic_required
+            and self.global_program_recognizer is None
+            and self.semantic_model_missing
+            and not config.allow_primary_only_smoke
+        ):
+            raise ConversionError(
+                "the pinned semantic model is unavailable and no global architectural "
+                "model is configured; configure either immutable model or explicitly "
+                "enable the incomplete primary-only smoke path"
+            )
         started = time.perf_counter()
         source = Path(image_path).expanduser().resolve()
         if not source.is_file():
@@ -184,25 +308,198 @@ class Plan2BimConverter:
         _write_json(complexity_path, drawing_profile)
 
         inference_started = time.perf_counter()
-        with Image.open(render_source) as image:
-            inference = self.runner.compile_image(
-                image.convert("L"),
-                sheet_id=sheet_id,
-                source_ref_ids=[source_hash],
-            )
+        inference: FullSheetAecResult | None = None
+        component_models: dict[str, dict[str, Any]] = {}
+        architectural_ledger = None
+        primary_smoke_fallback = (
+            semantic_required
+            and self.global_program_recognizer is None
+            and self.semantic_model_missing
+            and config.allow_primary_only_smoke
+        )
+        if config.specialist_mode in {"building_systems", "combined"} or primary_smoke_fallback:
+            with Image.open(render_source) as image:
+                inference = self.runner.compile_image(
+                    image.convert("L"),
+                    sheet_id=sheet_id,
+                    source_ref_ids=[source_hash],
+                )
+            component_models["building_systems"] = {
+                "model_version": inference.model_version,
+                "model_sha256": inference.model_artifact_sha256,
+                "production_authorized": inference.model_release_authorized,
+            }
+        else:
+            # The active primary specialist is trained for building-system symbols,
+            # not architectural rooms/walls.  Preserve exhaustive sheet coverage
+            # without spending CPU on a model whose output would be discarded.
+            with Image.open(render_source) as image:
+                architectural_ledger = build_evidence_tile_ledger(
+                    image.convert("L"),
+                    sheet_id=sheet_id,
+                    source_ref_ids=[source_hash],
+                )
         inference_ms = (time.perf_counter() - inference_started) * 1000
         recognition_path = ""
         recognition_overlay_path = ""
+        sheet_layout_path = ""
+        semantic_multiview_path = ""
+        global_program_path = ""
+        spatial_evidence_graph_path = ""
         semantic_model_version = ""
         semantic_model_sha256 = ""
         semantic_production_authorized = False
+        architectural_model_version = ""
+        architectural_model_sha256 = ""
+        architectural_production_authorized = False
+        architectural_ms = 0.0
         semantic_ms = 0.0
-        if self.semantic_recognizer is not None:
-            semantic_started = time.perf_counter()
-            recognition, wall_mask = self.semantic_recognizer.recognize(
+        forest_graph: SpatialEvidenceGraph | None = None
+        unresolved_detection_candidates: list[dict[str, Any]] = []
+        model_training_source_exclusions: set[str] = set()
+        if semantic_required and self.global_program_recognizer is not None:
+            architectural_started = time.perf_counter()
+            global_bundle = self.global_program_recognizer.recognize(
                 render_source,
-                max_side=self.semantic_max_side,
+                sheet_id=sheet_id,
+                source_ref_ids=[source_hash],
+                selected_plan_instance_id=config.plan_instance_id,
             )
+            architectural_model_version = global_bundle.model_version
+            architectural_model_sha256 = global_bundle.model_sha256
+            architectural_production_authorized = global_bundle.production_authorized
+            component_models["architectural_global_program"] = {
+                "model_version": global_bundle.model_version,
+                "model_sha256": global_bundle.model_sha256,
+                "production_authorized": global_bundle.production_authorized,
+            }
+            local_recognizer = self.global_program_recognizer.local_element_recognizer
+            if local_recognizer is not None:
+                model_training_source_exclusions.update(
+                    str(value).lower()
+                    for value in local_recognizer.manifest.get(
+                        "evaluation_exclusion_source_sha256", []
+                    )
+                    if isinstance(value, str) and len(value) == 64
+                )
+                component_models["native_element_refiner"] = {
+                    "model_version": local_recognizer.model_version,
+                    "model_sha256": local_recognizer.model_sha256,
+                    "production_authorized": bool(
+                        local_recognizer.manifest.get("production_authorized", False)
+                    ),
+                }
+            if global_bundle.local_element_refinement is not None:
+                unresolved_detection_candidates = [
+                    {
+                        "id": f"{config.level_id}:detection-review:{index}",
+                        "level_id": config.level_id,
+                        "source_candidate_id": item.candidate_id,
+                        "source_bbox_px": list(item.bbox_px),
+                        "bbox_m": [
+                            coordinate / config.pixels_per_meter
+                            for coordinate in item.bbox_px
+                        ],
+                        "proposed_type": item.proposed_class,
+                        "confidence": item.confidence,
+                        "reason": item.reason,
+                        "review_state": "review_required",
+                    }
+                    for index, item in enumerate(
+                        global_bundle.local_element_refinement.unresolved_discovered
+                    )
+                ]
+            global_program_path_obj = destination / "00-global-program-inference.json"
+            _write_json(global_program_path_obj, global_bundle)
+            global_program_path = str(global_program_path_obj)
+            if global_bundle.multiview is not None:
+                sheet_layout_path_obj = destination / "00-sheet-layout.json"
+                semantic_multiview_path_obj = destination / "00-global-program-multiview.json"
+                _write_json(sheet_layout_path_obj, global_bundle.multiview.layout)
+                _write_json(semantic_multiview_path_obj, global_bundle.multiview)
+                sheet_layout_path = str(sheet_layout_path_obj)
+                semantic_multiview_path = str(semantic_multiview_path_obj)
+                if (
+                    global_bundle.multiview.layout.multi_plan_candidate
+                    and not global_bundle.multiview.selected_plan_instance_id
+                ):
+                    choices = ", ".join(
+                        item.id for item in global_bundle.multiview.layout.regions
+                    )
+                    raise ConversionError(
+                        "multiple floor plans were found on this sheet. Select a "
+                        f"plan instance before conversion: {choices}"
+                    )
+            forest_graph = global_bundle.evidence_graph
+            graph_path = destination / "00-spatial-evidence-graph.json"
+            _write_json(graph_path, forest_graph)
+            spatial_evidence_graph_path = str(graph_path)
+            proposal = global_bundle.decode.proposal
+            review_reasons = list(global_bundle.decode.diagnostics.release_blockers)
+            ledger = architectural_ledger
+            coverage = None
+            model_version = global_bundle.model_version
+            model_sha256 = global_bundle.model_sha256
+            model_release_authorized = global_bundle.production_authorized
+            timings_ms = dict(global_bundle.timings_ms)
+            if inference is not None:
+                proposal = _merge_specialist_proposals(
+                    architectural=proposal,
+                    building_systems=inference.proposal,
+                )
+                ledger = inference.ledger
+                coverage = inference.coverage
+                review_reasons.extend(inference.review_reasons)
+                component_models = {
+                    "architectural": global_bundle.model_sha256,
+                    "building_systems": inference.model_artifact_sha256,
+                }
+                model_version = (
+                    f"{global_bundle.model_version}+{inference.model_version}"
+                )
+                model_sha256 = sha256_json(component_models)
+                model_release_authorized = (
+                    global_bundle.production_authorized
+                    and inference.model_release_authorized
+                )
+                timings_ms.update(
+                    {
+                        f"building_systems_{key}": value
+                        for key, value in inference.timings_ms.items()
+                    }
+                )
+            if ledger is None:
+                raise ConversionError("architectural evidence ledger was not built")
+            inference = FullSheetAecResult(
+                sheet_id=sheet_id,
+                model_version=model_version,
+                model_artifact_sha256=model_sha256,
+                model_release_authorized=model_release_authorized,
+                ledger=ledger,
+                proposal=proposal,
+                coverage=coverage,
+                release_allowed=False,
+                review_reasons=sorted(set(review_reasons)),
+                timings_ms=timings_ms,
+            ).finalize()
+            architectural_ms = (time.perf_counter() - architectural_started) * 1000
+        elif semantic_required and self.semantic_recognizer is not None:
+            semantic_started = time.perf_counter()
+            recognition, wall_mask, sheet_layout, multiview_diagnostics = (
+                recognize_semantic_multiview(
+                    self.semantic_recognizer,
+                    render_source,
+                    destination,
+                    sheet_id=sheet_id,
+                    max_side=self.semantic_max_side,
+                )
+            )
+            sheet_layout_path_obj = destination / "00-sheet-layout.json"
+            semantic_multiview_path_obj = destination / "00-semantic-multiview.json"
+            _write_json(sheet_layout_path_obj, sheet_layout)
+            _write_json(semantic_multiview_path_obj, multiview_diagnostics)
+            sheet_layout_path = str(sheet_layout_path_obj)
+            semantic_multiview_path = str(semantic_multiview_path_obj)
             recognition_path_obj = destination / "00-semantic-recognition.json"
             recognition_overlay_obj = destination / "00-semantic-overlay.png"
             recognition.overlay_path = str(recognition_overlay_obj)
@@ -219,47 +516,84 @@ class Plan2BimConverter:
             semantic_model_version = recognition.model_version
             semantic_model_sha256 = recognition.model_sha256
             semantic_production_authorized = recognition.production_authorized
+            component_models["legacy_semantic_teacher"] = {
+                "model_version": recognition.model_version,
+                "model_sha256": recognition.model_sha256,
+                "production_authorized": recognition.production_authorized,
+            }
+            component_models["whole_sheet_native_detail_fusion"] = {
+                "model_version": multiview_diagnostics.fusion_version,
+                "model_sha256": multiview_diagnostics.content_sha256,
+                "production_authorized": False,
+            }
             semantic_ms = (time.perf_counter() - semantic_started) * 1000
-            if inference.proposal is not None:
-                symbols = self.semantic_recognizer.symbol_proposals(
-                    recognition,
+            base_proposal = (
+                inference.proposal
+                if inference is not None and inference.proposal is not None
+                else AecTileProposal(
+                    tile_id=sheet_id,
                     source_ref_ids=[source_hash],
-                )
-                semantic_walls = self.semantic_recognizer.wall_proposals(
-                    recognition,
-                    source_ref_ids=[source_hash],
-                )
-                semantic_rooms = self.semantic_recognizer.room_proposals(
-                    recognition,
-                    source_ref_ids=[source_hash],
-                )
-                inference.proposal = AecTileProposal(
-                    tile_id=inference.proposal.tile_id,
-                    source_ref_ids=inference.proposal.source_ref_ids,
-                    model_version=(
-                        f"{inference.proposal.model_version}+{recognition.model_version}"
-                    ),
-                    wall_segments=(
-                        semantic_walls if semantic_walls else inference.proposal.wall_segments
-                    ),
-                    symbols=symbols,
-                    room_regions=semantic_rooms,
-                    rejected_candidates=inference.proposal.rejected_candidates,
+                    model_version="architectural-specialist-not-required",
+                    wall_segments=[],
+                    symbols=[],
+                    rejected_candidates=0,
                 ).finalize()
-                inference.review_reasons = sorted(
-                    set(inference.review_reasons + ["semantic_model_not_production_authorized"])
+            )
+            if base_proposal is not None:
+                forest = build_forest_perception_bundle(
+                    base_proposal,
+                    recognition,
+                    source_ref_ids=[source_hash],
                 )
-                inference.release_allowed = (
-                    inference.release_allowed and recognition.production_authorized
-                )
-                inference.finalize()
+                forest_graph = forest.evidence_graph
+                graph_path = destination / "00-spatial-evidence-graph.json"
+                _write_json(graph_path, forest_graph)
+                spatial_evidence_graph_path = str(graph_path)
+                if inference is None:
+                    if architectural_ledger is None:
+                        raise ConversionError("architectural evidence ledger was not built")
+                    inference = FullSheetAecResult(
+                        sheet_id=sheet_id,
+                        model_version=forest.evidence_graph.method_version,
+                        model_artifact_sha256=recognition.model_sha256,
+                        model_release_authorized=recognition.production_authorized,
+                        ledger=architectural_ledger,
+                        proposal=forest.proposal,
+                        coverage=None,
+                        release_allowed=False,
+                        review_reasons=[
+                            "building_system_specialist_not_applicable",
+                            "semantic_model_not_production_authorized",
+                            "sheet_layout_proposals_require_review",
+                            "semantic_multiview_requires_qualification",
+                        ],
+                        timings_ms={"architectural_routing": round(inference_ms, 3)},
+                    ).finalize()
+                else:
+                    inference.proposal = forest.proposal
+                    inference.review_reasons = sorted(
+                        set(
+                            inference.review_reasons
+                            + [
+                                "semantic_model_not_production_authorized",
+                                "sheet_layout_proposals_require_review",
+                                "semantic_multiview_requires_qualification",
+                            ]
+                        )
+                    )
+                    inference.release_allowed = (
+                        inference.release_allowed and recognition.production_authorized
+                    )
+                    inference.finalize()
 
-        runner_card = self.runner.model_card()
+        if inference is None:
+            raise ConversionError("the selected specialist mode produced no perception result")
+
         qualification = self.qualifier.qualify(
             drawing_profile,
             primary_model_version=inference.model_version,
             primary_model_sha256=inference.model_artifact_sha256,
-            primary_release_authorized=bool(runner_card.get("release_authorized", False)),
+            primary_release_authorized=inference.model_release_authorized,
             semantic_model_version=semantic_model_version,
             semantic_model_sha256=semantic_model_sha256,
             semantic_release_authorized=semantic_production_authorized,
@@ -310,9 +644,32 @@ class Plan2BimConverter:
         graph = BimProgramCompiler().compile(build.program)
         graph["drawing_profile"] = drawing_profile.model_dump(mode="json")
         graph["qualification"] = qualification.model_dump(mode="json")
+        graph.setdefault("pipeline", {})[
+            "model_training_source_exclusions"
+        ] = sorted(model_training_source_exclusions)
+        # Pixel geometry becomes metric BIM exactly once. Preserve that
+        # calibration so editing and evaluation cannot silently reinterpret it.
+        graph["pipeline"]["metric_scale"] = {
+            "pixels_per_meter": config.pixels_per_meter,
+            "source": config.scale_source,
+            "contract": "source_pixels_to_metric_bim_v1",
+        }
+        graph["detection_review_candidates"] = unresolved_detection_candidates
+        if unresolved_detection_candidates:
+            graph.setdefault("confidence", {})["review_required"] = True
+            graph.setdefault("pipeline", {})["review_required"] = True
+            graph["pipeline"]["unresolved_detection_candidate_count"] = len(
+                unresolved_detection_candidates
+            )
         if qualification.review_required:
             graph.setdefault("confidence", {})["review_required"] = True
             graph.setdefault("pipeline", {})["review_required"] = True
+        asset_started = time.perf_counter()
+        attach_family_assets(graph)
+        asset_ms = (time.perf_counter() - asset_started) * 1000
+        if forest_graph is not None:
+            forest_graph = attach_compiled_graph_evidence(forest_graph, graph)
+            _write_json(destination / "00-spatial-evidence-graph.json", forest_graph)
         _recertify_plan_graph(graph)
         graph_path = destination / "03-plan-graph.json"
         _write_json(graph_path, graph)
@@ -334,8 +691,10 @@ class Plan2BimConverter:
         timings = {
             "complexity_profiling": round(complexity_ms, 3),
             "inference": round(inference_ms, 3),
+            "architectural_program": round(architectural_ms, 3),
             "semantic_recognition": round(semantic_ms, 3),
             "compile": round(compile_ms, 3),
+            "asset_resolution": round(asset_ms, 3),
             "ifc_export": round(float(ifc_result["exportSeconds"]) * 1000, 3),
             "glb_export": round(glb_ms, 3),
             "total": round((time.perf_counter() - started) * 1000, 3),
@@ -372,6 +731,10 @@ class Plan2BimConverter:
             manifest_path=str(destination / "conversion-manifest.json"),
             recognition_path=recognition_path,
             recognition_overlay_path=recognition_overlay_path,
+            sheet_layout_path=sheet_layout_path,
+            semantic_multiview_path=semantic_multiview_path,
+            global_program_path=global_program_path,
+            spatial_evidence_graph_path=spatial_evidence_graph_path,
             complexity_path=str(complexity_path),
             qualification_path=str(qualification_path),
             difficulty_class=drawing_profile.difficulty_class,
@@ -383,6 +746,10 @@ class Plan2BimConverter:
             semantic_model_version=semantic_model_version,
             semantic_model_sha256=semantic_model_sha256,
             semantic_production_authorized=semantic_production_authorized,
+            architectural_model_version=architectural_model_version,
+            architectural_model_sha256=architectural_model_sha256,
+            architectural_production_authorized=architectural_production_authorized,
+            component_models=component_models,
             release_allowed=bool(ifc_result["releaseAllowed"]),
             review_required=bool(ifc_result["reviewRequired"]),
             review_reasons=review_reasons,
@@ -394,12 +761,49 @@ class Plan2BimConverter:
         return result
 
 
+def _merge_specialist_proposals(
+    *,
+    architectural: AecTileProposal,
+    building_systems: AecTileProposal | None,
+) -> AecTileProposal:
+    """Compose disjoint specialists without replacing architectural structure."""
+
+    if building_systems is None:
+        return architectural
+    selected = {}
+    for symbol in [*architectural.symbols, *building_systems.symbols]:
+        key = (
+            symbol.symbol_class,
+            round(symbol.center_px[0] / 2),
+            round(symbol.center_px[1] / 2),
+        )
+        current = selected.get(key)
+        if current is None or symbol.confidence > current.confidence:
+            selected[key] = symbol
+    return AecTileProposal(
+        tile_id=architectural.tile_id,
+        source_ref_ids=sorted(
+            set(architectural.source_ref_ids + building_systems.source_ref_ids)
+        ),
+        model_version=(
+            f"{architectural.model_version}+{building_systems.model_version}"
+        ),
+        wall_segments=architectural.wall_segments,
+        symbols=list(selected.values()),
+        room_regions=architectural.room_regions,
+        rejected_candidates=(
+            architectural.rejected_candidates + building_systems.rejected_candidates
+        ),
+    ).finalize()
+
+
 def convert_image(
     image_path: str | Path,
     output_dir: str | Path,
     *,
     pixels_per_meter: float,
     project_id: str = "dajoong-project",
+    plan_instance_id: str = "",
     level_id: str = "L1",
     level_name: str = "Level 1",
     elevation_m: float = 0.0,
@@ -409,7 +813,12 @@ def convert_image(
     threads: int = 1,
     batch_size: int = 8,
     semantic_model_path: str | Path | None = None,
-    semantic_max_side: int = 1024,
+    semantic_max_side: int | None = None,
+    global_program_model_path: str | Path | None = None,
+    local_element_model_path: str | Path | None = None,
+    discover_native_candidates: bool | None = None,
+    allow_research_global_program: bool = False,
+    allow_legacy_semantic_teacher: bool = False,
     page_number: int = 1,
     pdf_dpi: int = 300,
 ) -> ConversionResult:
@@ -417,6 +826,7 @@ def convert_image(
 
     config = ConversionConfig(
         project_id=project_id,
+        plan_instance_id=plan_instance_id,
         level_id=level_id,
         level_name=level_name,
         pixels_per_meter=pixels_per_meter,
@@ -434,6 +844,11 @@ def convert_image(
         batch_size=config.batch_size,
         semantic_model_path=semantic_model_path,
         semantic_max_side=semantic_max_side,
+        global_program_model_path=global_program_model_path,
+        local_element_model_path=local_element_model_path,
+        discover_native_candidates=discover_native_candidates,
+        allow_research_global_program=allow_research_global_program,
+        allow_legacy_semantic_teacher=allow_legacy_semantic_teacher,
     )
     return converter.convert(image_path, output_dir, config)
 

@@ -30,6 +30,10 @@ jobs:
       MODEL_BUNDLE_SHA256: ${{ secrets.DAJOONG_MODEL_BUNDLE_SHA256 }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
       ANDROID_APP_LINK_SHA256: ${{ vars.ANDROID_APP_LINK_SHA256 }}
+      TF_VAR_toss_client_key: ${{ secrets.TOSS_CLIENT_KEY }}
+      TF_VAR_invite_from_email: ${{ vars.DAJOONG_INVITE_FROM_EMAIL }}
+      TF_VAR_invite_identity_arn: ${{ vars.DAJOONG_INVITE_IDENTITY_ARN }}
+      TF_VAR_alarm_sns_topic_arn: ${{ vars.DAJOONG_ALARM_SNS_TOPIC_ARN }}
 
     steps:
       - uses: actions/checkout@v4
@@ -44,11 +48,31 @@ jobs:
           APPLE_SIGN_IN_PRIVATE_KEY: ${{ secrets.APPLE_SIGN_IN_PRIVATE_KEY }}
           KAKAO_OIDC_CLIENT_ID: ${{ secrets.KAKAO_OIDC_CLIENT_ID }}
           KAKAO_OIDC_CLIENT_SECRET: ${{ secrets.KAKAO_OIDC_CLIENT_SECRET }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          TOSS_SECRET_KEY: ${{ secrets.TOSS_SECRET_KEY }}
+          TOSS_CLIENT_KEY: ${{ secrets.TOSS_CLIENT_KEY }}
         run: |
           set -euo pipefail
-          for name in AWS_DEPLOY_ROLE_ARN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID MODEL_BUNDLE_URI MODEL_BUNDLE_SHA256 APPLE_TEAM_ID ANDROID_APP_LINK_SHA256 GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET APPLE_SERVICE_ID APPLE_SIGN_IN_KEY_ID APPLE_SIGN_IN_PRIVATE_KEY KAKAO_OIDC_CLIENT_ID KAKAO_OIDC_CLIENT_SECRET; do
+          for name in AWS_DEPLOY_ROLE_ARN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID MODEL_BUNDLE_URI MODEL_BUNDLE_SHA256 STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET; do
             test -n "${!name:-}" || { echo "Missing production setting: $name" >&2; exit 1; }
           done
+          for group in \
+            "GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET" \
+            "APPLE_SERVICE_ID APPLE_TEAM_ID APPLE_SIGN_IN_KEY_ID APPLE_SIGN_IN_PRIVATE_KEY" \
+            "KAKAO_OIDC_CLIENT_ID KAKAO_OIDC_CLIENT_SECRET" \
+            "TOSS_CLIENT_KEY TOSS_SECRET_KEY"; do
+            present=0
+            missing=0
+            for name in $group; do
+              if test -n "${!name:-}"; then present=$((present + 1)); else missing=$((missing + 1)); fi
+            done
+            test "$present" = "0" || test "$missing" = "0" || { echo "Optional integration is only partially configured: $group" >&2; exit 1; }
+          done
+          if { test -n "${TF_VAR_invite_from_email:-}" && test -z "${TF_VAR_invite_identity_arn:-}"; } || { test -z "${TF_VAR_invite_from_email:-}" && test -n "${TF_VAR_invite_identity_arn:-}"; }; then
+            echo "DAJOONG_INVITE_FROM_EMAIL and DAJOONG_INVITE_IDENTITY_ARN must be configured together" >&2
+            exit 1
+          fi
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -75,6 +99,10 @@ jobs:
 
       - name: Resolve state and create the origin-verification secret
         shell: bash
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          TOSS_SECRET_KEY: ${{ secrets.TOSS_SECRET_KEY }}
         run: |
           set -euo pipefail
           account_id=$(aws sts get-caller-identity --query Account --output text)
@@ -92,6 +120,33 @@ jobs:
           {
             echo "ORIGIN_SECRET_ARN=$secret_arn"
             echo "TF_VAR_origin_secret_arn=$secret_arn"
+          } >> "$GITHUB_ENV"
+
+          upsert_secret() {
+            local secret_name="$1"
+            local secret_value="$2"
+            local secret_arn
+            if secret_arn=$(aws secretsmanager describe-secret --secret-id "$secret_name" --query ARN --output text 2>/dev/null); then
+              aws secretsmanager put-secret-value --secret-id "$secret_name" --secret-string "$secret_value" >/dev/null
+            else
+              secret_arn=$(aws secretsmanager create-secret \
+                --name "$secret_name" \
+                --secret-string "$secret_value" \
+                --query ARN --output text)
+            fi
+            printf '%s' "$secret_arn"
+          }
+
+          stripe_secret_arn=$(upsert_secret "dajoong/plan2bim/production/stripe-secret-key" "$STRIPE_SECRET_KEY")
+          stripe_webhook_arn=$(upsert_secret "dajoong/plan2bim/production/stripe-webhook-secret" "$STRIPE_WEBHOOK_SECRET")
+          toss_secret_arn=""
+          if [[ -n "$TOSS_SECRET_KEY" ]]; then
+            toss_secret_arn=$(upsert_secret "dajoong/plan2bim/production/toss-secret-key" "$TOSS_SECRET_KEY")
+          fi
+          {
+            echo "TF_VAR_stripe_secret_key_arn=$stripe_secret_arn"
+            echo "TF_VAR_stripe_webhook_secret_arn=$stripe_webhook_arn"
+            echo "TF_VAR_toss_secret_key_arn=$toss_secret_arn"
           } >> "$GITHUB_ENV"
 
       - name: Initialize and validate the Studio stack
@@ -177,10 +232,10 @@ jobs:
           APPLE_TEAM_ID="${{ vars.APPLE_TEAM_ID }}" \
           ANDROID_APP_LINK_SHA256="${{ vars.ANDROID_APP_LINK_SHA256 }}" \
             npm run links:prepare --prefix apps/plan2bim-studio/frontend
-          VITE_STUDIO_API_URL=https://studio-api.builiconstruction.com \
+          VITE_STUDIO_API_URL=https://studio-api.dajoongbim.com \
           VITE_COGNITO_AUTHORITY="$authority" \
           VITE_COGNITO_CLIENT_ID="$client_id" \
-          VITE_COGNITO_REDIRECT_URI=https://studio.builiconstruction.com/studio \
+          VITE_COGNITO_REDIRECT_URI=https://studio.dajoongbim.com/studio \
           VITE_AUTH_GOOGLE_ENABLED="$google" \
           VITE_AUTH_APPLE_ENABLED="$apple" \
           VITE_AUTH_KAKAO_ENABLED="$kakao" \
@@ -213,17 +268,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --retry 30 --retry-delay 10 --retry-all-errors https://studio-api.builiconstruction.com/api/health
-          curl --fail --retry 20 --retry-delay 5 --retry-all-errors https://builiconstruction.com/
-          curl --fail --retry 20 --retry-delay 5 --retry-all-errors https://studio.builiconstruction.com/studio
+          curl --fail --retry 30 --retry-delay 10 --retry-all-errors https://studio-api.dajoongbim.com/api/health
+          curl --fail --retry 20 --retry-delay 5 --retry-all-errors https://dajoongbim.com/
+          curl --fail --retry 20 --retry-delay 5 --retry-all-errors https://studio.dajoongbim.com/studio
           for path in privacy cookies terms support account-deletion; do
-            curl --fail --retry 10 --retry-delay 3 --retry-all-errors "https://studio.builiconstruction.com/$path"
+            curl --fail --retry 10 --retry-delay 3 --retry-all-errors "https://studio.dajoongbim.com/$path"
           done
-          test "$(curl -sS -o /dev/null -w '%{http_code}' https://www.builiconstruction.com/)" = "308"
-          test "$(curl -sS -o /dev/null -w '%{http_code}' https://app.builiconstruction.com/studio)" = "308"
-          curl --fail --retry 10 --retry-delay 3 --retry-all-errors https://app.builiconstruction.com/.well-known/apple-app-site-association
-          curl --fail --retry 10 --retry-delay 3 --retry-all-errors https://app.builiconstruction.com/.well-known/assetlinks.json
-          status=$(curl -sS -o /dev/null -w '%{http_code}' https://studio-api.builiconstruction.com/api/jobs)
+          test "$(curl -sS -o /dev/null -w '%{http_code}' https://www.dajoongbim.com/)" = "308"
+          test "$(curl -sS -o /dev/null -w '%{http_code}' https://app.dajoongbim.com/studio)" = "308"
+          if [[ -n "${APPLE_TEAM_ID:-}" ]]; then
+            curl --fail --retry 10 --retry-delay 3 --retry-all-errors https://app.dajoongbim.com/.well-known/apple-app-site-association
+          fi
+          if [[ -n "${ANDROID_APP_LINK_SHA256:-}" ]]; then
+            curl --fail --retry 10 --retry-delay 3 --retry-all-errors https://app.dajoongbim.com/.well-known/assetlinks.json
+          fi
+          status=$(curl -sS -o /dev/null -w '%{http_code}' https://studio-api.dajoongbim.com/api/jobs)
           test "$status" = "401" || { echo "Expected authenticated public jobs route to return 401, got $status" >&2; exit 1; }
           service_url=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw api_service_url)
           direct_status=$(curl -sS -o /dev/null -w '%{http_code}' "https://${service_url#https://}/api/jobs")
@@ -235,9 +294,9 @@ jobs:
           hosted_ui=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw cognito_hosted_ui)
           {
             echo "### Dajoong Plan2BIM production is ready"
-            echo "- API: https://studio-api.builiconstruction.com/api/health"
-            echo "- Website: https://builiconstruction.com/"
-            echo "- Studio: https://studio.builiconstruction.com/studio"
+            echo "- API: https://studio-api.dajoongbim.com/api/health"
+            echo "- Website: https://dajoongbim.com/"
+            echo "- Studio: https://studio.dajoongbim.com/studio"
             echo "- OAuth provider callback: ${hosted_ui}/oauth2/idpresponse"
             echo "- Converter image: ${{ github.sha }} (private ECR only)"
             echo "- Identity providers were enabled only when their keys were present."
@@ -248,4 +307,5 @@ jobs:
         shell: bash
         run: |
           rm -f "$RUNNER_TEMP/private-models.tar.gz"
-          find modules/plan2bim/src/buili_plan2bim/models -maxdepth 1 -type f ! -name '__init__.py' -delete
+          find modules/plan2bim/src/buili_plan2bim/models -maxdepth 1 -type f \
+            ! -name '__init__.py' ! -name 'ACTIVE_RUNTIME.json' -delete

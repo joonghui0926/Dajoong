@@ -192,6 +192,100 @@ def _fixture_spec(symbol_class: str) -> tuple[str, str, tuple[float, float, floa
         "fireplace": ("residential-fireplace", "architectural", (1.0, 0.45, 1.2), 0.0),
         "bathtub": ("residential-bathtub", "plumbing", (1.7, 0.75, 0.6), 0.0),
         "chimney": ("residential-chimney", "architectural", (0.6, 0.6, 3.0), 0.0),
+        "base_cabinet": (
+            "residential-base-cabinet",
+            "architectural",
+            (1.2, 0.6, 0.9),
+            0.0,
+        ),
+        "wall_cabinet": (
+            "residential-wall-cabinet",
+            "architectural",
+            (1.0, 0.35, 0.72),
+            1.35,
+        ),
+        "coat_closet": (
+            "residential-closet",
+            "architectural",
+            (1.0, 0.6, 2.2),
+            0.0,
+        ),
+        "shower": (
+            "residential-shower-enclosure",
+            "plumbing",
+            (0.9, 0.9, 2.1),
+            0.0,
+        ),
+        "shower_screen": (
+            "residential-shower-enclosure",
+            "plumbing",
+            (0.9, 0.08, 2.0),
+            0.0,
+        ),
+        "column": ("structural-column", "architectural", (0.4, 0.4, 3.0), 0.0),
+        "stair": ("residential-stair", "architectural", (1.0, 2.8, 1.5), 0.0),
+        "housing": (
+            "generic-equipment-housing",
+            "architectural",
+            (0.8, 0.6, 1.0),
+            0.0,
+        ),
+        "coat_rack": (
+            "residential-coat-rack",
+            "architectural",
+            (1.0, 0.18, 1.7),
+            0.0,
+        ),
+        "water_tap": (
+            "residential-water-tap",
+            "plumbing",
+            (0.22, 0.18, 0.28),
+            0.9,
+        ),
+        "jacuzzi": (
+            "residential-jacuzzi",
+            "plumbing",
+            (1.8, 1.1, 0.65),
+            0.0,
+        ),
+        "wood_stove": (
+            "residential-wood-stove",
+            "architectural",
+            (0.65, 0.65, 1.4),
+            0.0,
+        ),
+        "fireplace_corner": (
+            "residential-corner-fireplace",
+            "architectural",
+            (0.9, 0.9, 1.2),
+            0.0,
+        ),
+        "place_for_fireplace": (
+            "fireplace-provision",
+            "architectural",
+            (1.0, 0.5, 0.18),
+            0.0,
+        ),
+        "place_for_fireplace_corner": (
+            "corner-fireplace-provision",
+            "architectural",
+            (0.8, 0.8, 0.18),
+            0.0,
+        ),
+        "misc": ("generic-fixture", "architectural", (0.5, 0.5, 0.6), 0.0),
+        "bed": ("residential-bed", "architectural", (2.0, 1.5, 0.65), 0.0),
+        "sofa": ("residential-sofa", "architectural", (2.0, 0.9, 0.85), 0.0),
+        "armchair": ("residential-armchair", "architectural", (0.9, 0.9, 0.9), 0.0),
+        "chair": ("residential-chair", "architectural", (0.55, 0.55, 0.9), 0.0),
+        "dining_table": ("residential-dining-table", "architectural", (1.8, 0.9, 0.75), 0.0),
+        "coffee_table": ("residential-coffee-table", "architectural", (1.1, 0.65, 0.45), 0.0),
+        "desk": ("residential-desk", "architectural", (1.4, 0.7, 0.75), 0.0),
+        "bench": ("residential-bench", "architectural", (1.3, 0.5, 0.5), 0.0),
+        "refrigerator": ("residential-refrigerator", "electrical", (0.75, 0.75, 1.9), 0.0),
+        "stove": ("residential-stove", "electrical", (0.75, 0.65, 0.9), 0.0),
+        "dishwasher": ("residential-dishwasher", "electrical", (0.6, 0.6, 0.85), 0.0),
+        "washing_machine": ("residential-washing-machine", "electrical", (0.65, 0.65, 0.9), 0.0),
+        "tumble_dryer": ("residential-tumble-dryer", "electrical", (0.65, 0.65, 0.9), 0.0),
     }
     return mapping.get(
         symbol_class, (f"unknown-{symbol_class}", "architectural", (0.2, 0.2, 0.2), 0.0)
@@ -244,13 +338,23 @@ def build_program_from_tile_proposal(
         review_state: ReviewState = (
             "accepted" if auto_accept and not segment.review_required else "review_required"
         )
+        measured_thickness_m = (
+            segment.thickness_px / context.pixels_per_meter
+            if segment.thickness_px is not None
+            else context.wall_thickness_m
+        )
+        # Dense wall masks include junction caps and drawing noise.  Preserve the
+        # measured per-wall thickness while keeping malformed evidence from
+        # creating zero-width or room-sized walls in the BIM graph.
+        wall_thickness_m = min(max(measured_thickness_m, 0.04), 0.80)
         walls.append(
             WallInstruction(
                 id=f"{context.level_id}:wall:{index}",
+                proposal_id=segment.id,
                 level_id=context.level_id,
                 start_m=_metric_point(context, points[edge_nodes[index][0]]),
                 end_m=_metric_point(context, points[edge_nodes[index][1]]),
-                thickness_m=context.wall_thickness_m,
+                thickness_m=wall_thickness_m,
                 height_m=context.nominal_height_m,
                 wall_type="unknown",
                 material="",
@@ -307,6 +411,7 @@ def build_program_from_tile_proposal(
             rooms.append(
                 RoomInstruction(
                     id=room_id,
+                    proposal_id=region.id,
                     level_id=context.level_id,
                     name=region.name,
                     occupancy=region.room_class,
@@ -376,6 +481,7 @@ def build_program_from_tile_proposal(
             openings.append(
                 OpeningInstruction(
                     id=f"{context.level_id}:opening:{len(openings)}",
+                    proposal_id=symbol.id,
                     level_id=context.level_id,
                     kind=symbol.symbol_class,
                     wall_id=wall.id,
@@ -423,6 +529,7 @@ def build_program_from_tile_proposal(
         fixtures.append(
             FixtureInstruction(
                 id=f"{context.level_id}:fixture:{len(fixtures)}",
+                proposal_id=symbol.id,
                 level_id=context.level_id,
                 family_id=family_id,
                 discipline=discipline,  # type: ignore[arg-type]

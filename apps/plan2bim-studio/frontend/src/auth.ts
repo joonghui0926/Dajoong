@@ -78,19 +78,91 @@ export const userManager = settings
   : null;
 
 let bearerToken = "";
+const ACTIVE_ORGANIZATION_KEY = "dajoong-active-organization-v1";
 
 export function setBearerToken(token: string) {
   bearerToken = token;
 }
 
-export function authFetch(input: RequestInfo | URL, init: RequestInit = {}) {
+export function getActiveOrganizationId(): string {
+  return localStorage.getItem(ACTIVE_ORGANIZATION_KEY) ?? "";
+}
+
+export function setActiveOrganizationId(organizationId: string) {
+  if (organizationId) localStorage.setItem(ACTIVE_ORGANIZATION_KEY, organizationId);
+  else localStorage.removeItem(ACTIVE_ORGANIZATION_KEY);
+  window.dispatchEvent(new CustomEvent("dajoong:workspace-change", { detail: organizationId }));
+}
+
+function waitBeforeRetry(delayMs: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new DOMException("Request cancelled", "AbortError"));
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      signal?.removeEventListener("abort", cancel);
+      resolve();
+    }, delayMs);
+    const cancel = () => {
+      window.clearTimeout(timer);
+      reject(signal?.reason ?? new DOMException("Request cancelled", "AbortError"));
+    };
+    signal?.addEventListener("abort", cancel, { once: true });
+  });
+}
+
+export async function authFetch(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = 30_000,
+): Promise<Response> {
   if (!isTrustedStudioApiRequest(input)) {
-    return Promise.reject(new Error("Blocked a request outside the Dajoong conversion service"));
+    throw new Error("Blocked a request outside the Dajoong conversion service");
   }
-  if (!bearerToken) return fetch(input, init);
   const headers = new Headers(init.headers);
-  headers.set("Authorization", `Bearer ${bearerToken}`);
-  return fetch(input, { ...init, headers });
+  const callerSignal = init.signal ?? undefined;
+  if (bearerToken) headers.set("Authorization", `Bearer ${bearerToken}`);
+  const organizationId = getActiveOrganizationId();
+  if (organizationId) headers.set("X-Dajoong-Organization", organizationId);
+  const method = (init.method ?? "GET").toUpperCase();
+  const retryable = method === "GET" || method === "HEAD" || headers.has("Idempotency-Key");
+  const attempts = retryable ? (method === "GET" || method === "HEAD" ? 3 : 2) : 1;
+  let lastError: unknown;
+  let lastTimedOut = false;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const controller = new AbortController();
+    let timedOut = false;
+    const cancel = () => controller.abort(callerSignal?.reason);
+    if (callerSignal?.aborted) cancel();
+    else callerSignal?.addEventListener("abort", cancel, { once: true });
+    const timer = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    try {
+      const response = await fetch(input, { ...init, headers, signal: controller.signal });
+      const transient = [429, 502, 503, 504].includes(response.status);
+      if (!transient || attempt + 1 >= attempts) return response;
+      await response.body?.cancel().catch(() => undefined);
+      const retryAfterSeconds = Number(response.headers.get("Retry-After") ?? "");
+      const delay = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+        ? Math.min(5_000, retryAfterSeconds * 1_000)
+        : 350 * (2 ** attempt);
+      await waitBeforeRetry(delay, callerSignal);
+    } catch (error) {
+      if (callerSignal?.aborted) throw error;
+      lastError = error;
+      lastTimedOut = timedOut;
+      if (attempt + 1 >= attempts) break;
+      await waitBeforeRetry(350 * (2 ** attempt), callerSignal);
+    } finally {
+      window.clearTimeout(timer);
+      callerSignal?.removeEventListener("abort", cancel);
+    }
+  }
+  if (lastTimedOut) throw new Error("The Dajoong service took too long to respond. Please try again.");
+  throw lastError;
 }
 
 export async function signIn(provider?: "Google" | "SignInWithApple" | "Kakao") {
@@ -107,6 +179,7 @@ export async function signIn(provider?: "Google" | "SignInWithApple" | "Kakao") 
 
 export async function signOut() {
   setBearerToken("");
+  setActiveOrganizationId("");
   if (!userManager) return;
   if (native) {
     await userManager.removeUser();

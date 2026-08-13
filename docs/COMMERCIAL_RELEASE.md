@@ -10,7 +10,7 @@ in Git, a browser bundle, or a mobile application.
    create a protected GitHub environment named `production`.
 2. Deploy `infra/bootstrap/github-oidc.yml` once in the AWS account. Use its
    output as `AWS_DEPLOY_ROLE_ARN`.
-3. Keep `builiconstruction.com` in the Cloudflare account used by the token.
+3. Keep `dajoongbim.com` in the Cloudflare account used by the token.
    Wrangler creates the apex, `www`, `studio`, `app`, and `studio-api`
    custom-domain records and their certificates.
 4. Create Play Console and App Store Connect records for
@@ -41,6 +41,9 @@ Register that URL with Google, Apple, and Kakao before the first deployment.
 | `APP_REVIEW_FIRST_NAME` | Optional; defaults to `Paul` |
 | `APP_REVIEW_LAST_NAME` | Optional; defaults to `Cho` |
 | `APP_REVIEW_NOTES` | Optional review instructions |
+| `DAJOONG_INVITE_FROM_EMAIL` | Optional verified SES sender for automatic team invitation email |
+| `DAJOONG_INVITE_IDENTITY_ARN` | Matching SES identity ARN; configure together with the sender |
+| `DAJOONG_ALARM_SNS_TOPIC_ARN` | Optional SNS topic for failed-job and queue-delay alerts |
 
 ## GitHub environment secrets
 
@@ -50,6 +53,7 @@ Register that URL with Google, Apple, and Kakao before the first deployment.
 | Google login | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` |
 | Apple login | `APPLE_SERVICE_ID`, `APPLE_SIGN_IN_KEY_ID`, `APPLE_SIGN_IN_PRIVATE_KEY` |
 | Kakao login | `KAKAO_OIDC_CLIENT_ID`, `KAKAO_OIDC_CLIENT_SECRET` |
+| Payments | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `TOSS_SECRET_KEY`, `TOSS_CLIENT_KEY` |
 | Android signing | `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_PASSWORD` |
 | Google Play | `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` |
 | Apple signing | `APPLE_DISTRIBUTION_CERTIFICATE_BASE64`, `APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD` |
@@ -58,7 +62,12 @@ Register that URL with Google, Apple, and Kakao before the first deployment.
 
 Base64 values must contain the raw file bytes encoded without line wrapping.
 The Cloudflare token needs Workers Scripts edit, Workers Routes edit, DNS edit,
-and account/zone read access for `builiconstruction.com`.
+and account/zone read access for `dajoongbim.com`.
+
+The deployment copies payment server keys into AWS Secrets Manager and passes
+only their ARNs to App Runner. Team invitation tokens are hashed at rest. If an
+SES sender is not configured, administrators can still copy the one-time secure
+invitation link from the People panel.
 
 ## Release order
 
@@ -66,8 +75,8 @@ and account/zone read access for `builiconstruction.com`.
    validates the private model, Python suite, server image, web suite, bundle
    boundary, and store metadata.
 2. Run `deploy-plan2bim-studio`. It deploys the private converter, zero-idle CPU
-   workers, Cognito, `studio-api.builiconstruction.com`, the landing page at the
-   apex, and the editor at `studio.builiconstruction.com`.
+   workers, Cognito, `studio-api.dajoongbim.com`, the landing page at the
+   apex, and the editor at `studio.dajoongbim.com`.
 3. Complete one authenticated conversion on web and one installed test build.
 4. Run `release-mobile` with both publishing switches off. Inspect the signed
    AAB and IPA artifacts.
@@ -76,14 +85,14 @@ and account/zone read access for `builiconstruction.com`.
 
 ## Public production pages
 
-- Website: `https://builiconstruction.com/`
-- Studio: `https://studio.builiconstruction.com/studio`
-- Privacy: `https://studio.builiconstruction.com/privacy`
-- Cookies: `https://studio.builiconstruction.com/cookies`
-- Terms: `https://studio.builiconstruction.com/terms`
-- Support: `https://studio.builiconstruction.com/support`
-- Account deletion: `https://studio.builiconstruction.com/account-deletion`
-- API health: `https://studio-api.builiconstruction.com/api/health`
+- Website: `https://dajoongbim.com/`
+- Studio: `https://studio.dajoongbim.com/studio`
+- Privacy: `https://studio.dajoongbim.com/privacy`
+- Cookies: `https://studio.dajoongbim.com/cookies`
+- Terms: `https://studio.dajoongbim.com/terms`
+- Support: `https://studio.dajoongbim.com/support`
+- Account deletion: `https://studio.dajoongbim.com/account-deletion`
+- API health: `https://studio-api.dajoongbim.com/api/health`
 
 Support and privacy contact: `jjoonghui@gmail.com`.
 

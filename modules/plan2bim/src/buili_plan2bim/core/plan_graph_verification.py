@@ -20,6 +20,18 @@ DISTRIBUTED_FIXTURE_KINDS = {
     "railing",
     "stair",
 }
+INTEGRATED_APPLIANCE_MARKERS = {
+    "dishwasher",
+    "refrigerator",
+    "stove",
+    "washing_machine",
+    "washing-machine",
+    "washingmachine",
+    "tumble_dryer",
+    "tumble-dryer",
+    "tumbledryer",
+}
+CASEWORK_MARKERS = {"base_cabinet", "base-cabinet", "cabinet", "closet", "casework"}
 
 
 class PlanGraphViolation(BaseModel):
@@ -163,6 +175,33 @@ def _source_ids(entity: dict[str, Any]) -> list[str]:
 
 def _duplicates(values: Iterable[str]) -> list[str]:
     return sorted(key for key, count in Counter(values).items() if key and count > 1)
+
+
+def _fixture_plan_envelope(entity: dict[str, Any]) -> tuple[float, float, float, float] | None:
+    center = _point(entity.get("center_m"))
+    size = entity.get("size_m") or []
+    if center is None or not isinstance(size, (list, tuple)) or len(size) < 2:
+        return None
+    if not _finite(size[0]) or not _finite(size[1]):
+        return None
+    width = float(size[0])
+    depth = float(size[1])
+    yaw = math.radians(float(entity.get("yaw_deg") or 0.0))
+    world_width = abs(math.cos(yaw)) * width + abs(math.sin(yaw)) * depth
+    world_depth = abs(math.sin(yaw)) * width + abs(math.cos(yaw)) * depth
+    return (
+        center[0] - world_width / 2,
+        center[1] - world_depth / 2,
+        center[0] + world_width / 2,
+        center[1] + world_depth / 2,
+    )
+
+
+def _fixture_semantic_text(entity: dict[str, Any]) -> str:
+    return " ".join(
+        str(entity.get(key) or "").lower()
+        for key in ("type", "family_id", "source_class")
+    ).replace(" ", "_")
 
 
 class PlanGraphVerifier:
@@ -580,6 +619,84 @@ class PlanGraphVerifier:
                 ),
             )
             self._check_evidence(fixture, fixture_id, source_map, check)
+
+        # Integrated appliances replace, rather than occupy the same solid as,
+        # floor-mounted casework.  Countertop sinks and cooktops are excluded:
+        # their work plane is intentionally above a cabinet volume.
+        for left_index, left in enumerate(fixtures):
+            left_text = _fixture_semantic_text(left)
+            left_is_casework = any(marker in left_text for marker in CASEWORK_MARKERS)
+            for right in fixtures[left_index + 1 :]:
+                right_text = _fixture_semantic_text(right)
+                right_is_casework = any(
+                    marker in right_text for marker in CASEWORK_MARKERS
+                )
+                left_is_appliance = any(
+                    marker in left_text for marker in INTEGRATED_APPLIANCE_MARKERS
+                )
+                right_is_appliance = any(
+                    marker in right_text for marker in INTEGRATED_APPLIANCE_MARKERS
+                )
+                if left_is_casework and right_is_appliance:
+                    casework, appliance = left, right
+                elif right_is_casework and left_is_appliance:
+                    casework, appliance = right, left
+                else:
+                    continue
+                if str(left.get("level_id")) != str(right.get("level_id")):
+                    continue
+                left_box = _fixture_plan_envelope(casework)
+                if left_box is None:
+                    continue
+                left_base = float(casework.get("base_elevation_m") or 0.0)
+                left_size = casework.get("size_m") or []
+                if len(left_size) < 3 or not _finite(left_size[2]):
+                    continue
+                left_top = left_base + float(left_size[2])
+                appliance_box = _fixture_plan_envelope(appliance)
+                if appliance_box is None:
+                    continue
+                appliance_size = appliance.get("size_m") or []
+                if len(appliance_size) < 3 or not _finite(appliance_size[2]):
+                    continue
+                appliance_base = float(appliance.get("base_elevation_m") or 0.0)
+                appliance_top = appliance_base + float(appliance_size[2])
+                vertical_overlap = min(left_top, appliance_top) - max(
+                    left_base, appliance_base
+                )
+                intersection_width = max(
+                    0.0,
+                    min(left_box[2], appliance_box[2])
+                    - max(left_box[0], appliance_box[0]),
+                )
+                intersection_depth = max(
+                    0.0,
+                    min(left_box[3], appliance_box[3])
+                    - max(left_box[1], appliance_box[1]),
+                )
+                appliance_area = max(
+                    1e-6,
+                    (appliance_box[2] - appliance_box[0])
+                    * (appliance_box[3] - appliance_box[1]),
+                )
+                occupied_fraction = intersection_width * intersection_depth / appliance_area
+                check(
+                    not (vertical_overlap > self.tolerance_m and occupied_fraction >= 0.72),
+                    PlanGraphViolation(
+                        code="INTEGRATED_APPLIANCE_CASEWORK_COLLISION",
+                        severity="error",
+                        message=(
+                            "An integrated appliance occupies the same solid volume as casework."
+                        ),
+                        entity_ids=[_id(casework, "casework"), _id(appliance, "appliance")],
+                        source_ref_ids=sorted(
+                            set(_source_ids(casework) + _source_ids(appliance))
+                        ),
+                        remediation=(
+                            "Split the cabinet run at the appliance bay before export."
+                        ),
+                    ),
+                )
 
         for index, route in enumerate(routes):
             route_id = _id(route, f"route-{index}")

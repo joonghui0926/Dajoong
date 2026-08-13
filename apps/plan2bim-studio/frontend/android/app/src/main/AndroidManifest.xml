@@ -30,8 +30,8 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="app.builiconstruction.com" android:pathPrefix="/studio" />
-                <data android:scheme="https" android:host="studio.builiconstruction.com" android:pathPrefix="/studio" />
+                <data android:scheme="https" android:host="app.dajoongbim.com" android:pathPrefix="/studio" />
+                <data android:scheme="https" android:host="studio.dajoongbim.com" android:pathPrefix="/studio" />
             </intent-filter>
 
             <intent-filter>

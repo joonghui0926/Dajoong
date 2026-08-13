@@ -9,6 +9,7 @@ from typing import Any
 
 from scipy.spatial import Delaunay
 
+from .asset_catalog import resolved_fixture_geometry
 from .cad_families import FAMILY_MANIFESTS, parametric_family_parts
 from .hashing import sha256_file, sha256_json
 
@@ -131,6 +132,8 @@ class _GlbBuilder:
         indices: list[int],
         material: int,
         extras: dict[str, Any],
+        *,
+        colors: list[tuple[float, float, float, float]] | None = None,
     ) -> int:
         if not vertices or not indices:
             raise ValueError(f"GLB node {name!r} has no geometry")
@@ -140,6 +143,15 @@ class _GlbBuilder:
         self.binary.extend(_pad4(position_blob, b"\x00"))
         index_offset = len(self.binary)
         self.binary.extend(_pad4(index_blob, b"\x00"))
+
+        color_offset = 0
+        color_blob = b""
+        if colors is not None:
+            if len(colors) != len(vertices):
+                raise ValueError(f"GLB node {name!r} color count differs from vertex count")
+            color_blob = b"".join(struct.pack("<ffff", *color) for color in colors)
+            color_offset = len(self.binary)
+            self.binary.extend(_pad4(color_blob, b"\x00"))
 
         position_view = len(self.buffer_views)
         self.buffer_views.append(
@@ -181,13 +193,34 @@ class _GlbBuilder:
                 "max": [max(indices)],
             }
         )
+        attributes = {"POSITION": position_accessor}
+        if colors is not None:
+            color_view = len(self.buffer_views)
+            self.buffer_views.append(
+                {
+                    "buffer": 0,
+                    "byteOffset": color_offset,
+                    "byteLength": len(color_blob),
+                    "target": 34962,
+                }
+            )
+            color_accessor = len(self.accessors)
+            self.accessors.append(
+                {
+                    "bufferView": color_view,
+                    "componentType": 5126,
+                    "count": len(colors),
+                    "type": "VEC4",
+                }
+            )
+            attributes["COLOR_0"] = color_accessor
         mesh_index = len(self.meshes)
         self.meshes.append(
             {
                 "name": name,
                 "primitives": [
                     {
-                        "attributes": {"POSITION": position_accessor},
+                        "attributes": attributes,
                         "indices": index_accessor,
                         "material": material,
                     }
@@ -279,6 +312,7 @@ def export_editable_glb(graph: dict[str, Any], path: str | Path) -> dict[str, An
         "mechanical": builder.material("Mechanical", (0.30, 0.47, 0.43, 1.0)),
         "plumbing": builder.material("Plumbing", (0.76, 0.79, 0.76, 1.0)),
         "fire": builder.material("Fire protection", (0.58, 0.24, 0.20, 1.0)),
+        "asset_surface": builder.material("Authored asset surface", (1.0, 1.0, 1.0, 1.0)),
         "vertical": builder.material("Vertical circulation", (0.10, 0.52, 0.66, 1.0)),
         "vertical_glass": builder.material(
             "Lift enclosure", (0.23, 0.57, 0.65, 0.42), roughness=0.22
@@ -487,7 +521,39 @@ def export_editable_glb(graph: dict[str, Any], path: str | Path) -> dict[str, An
         )
         yaw = math.radians(float(fixture.get("yaw_deg") or 0.0))
         vertices, indices = [], []
-        if family_id in FAMILY_MANIFESTS:
+        colors: list[tuple[float, float, float, float]] | None = None
+        resolved_geometry = resolved_fixture_geometry(graph, fixture)
+        mesh_vertices = resolved_geometry.get("mesh_vertices") or []
+        mesh_faces = resolved_geometry.get("mesh_faces") or []
+        mesh_face_colors = resolved_geometry.get("mesh_face_colors") or []
+        if mesh_vertices and mesh_faces:
+            colors = []
+            cosine, sine = math.cos(yaw), math.sin(yaw)
+            for face_index, face in enumerate(mesh_faces):
+                if len(face) != 3:
+                    continue
+                color = (
+                    mesh_face_colors[face_index]
+                    if face_index < len(mesh_face_colors)
+                    else (128, 128, 128)
+                )
+                normalized_color = tuple(
+                    min(1.0, max(0.0, float(value) / 255.0)) for value in color[:3]
+                ) + (1.0,)
+                for vertex_index in face:
+                    local_x, local_y, local_z = (
+                        float(value) for value in mesh_vertices[int(vertex_index)][:3]
+                    )
+                    vertices.append(
+                        (
+                            center[0] + local_x * cosine - local_y * sine,
+                            center[1] + local_x * sine + local_y * cosine,
+                            elevation + local_z,
+                        )
+                    )
+                    colors.append(normalized_color)
+                    indices.append(len(indices))
+        elif family_id in FAMILY_MANIFESTS:
             for part in parametric_family_parts(family_id, size):
                 local_x, local_y, local_z = part.center
                 cosine, sine = math.cos(yaw), math.sin(yaw)
@@ -503,23 +569,46 @@ def export_editable_glb(graph: dict[str, Any], path: str | Path) -> dict[str, An
                     yaw_rad=yaw,
                 )
         else:
+            # A plain cuboid falsely implies that an unresolved semantic item
+            # has valid object geometry. Keep it selectable as a lightweight
+            # cross marker and force review instead of shipping a fake asset.
+            marker_thickness = min(0.04, max(0.01, min(size[0], size[1]) * 0.08))
             _box(
                 vertices,
                 indices,
-                center=(center[0], center[1], elevation + size[2] / 2),
-                size=size,
+                center=(center[0], center[1], elevation + marker_thickness / 2),
+                size=(max(0.08, size[0]), marker_thickness, marker_thickness),
+                yaw_rad=yaw,
+            )
+            _box(
+                vertices,
+                indices,
+                center=(center[0], center[1], elevation + marker_thickness / 2),
+                size=(marker_thickness, max(0.08, size[1]), marker_thickness),
                 yaw_rad=yaw,
             )
         builder.node(
             f"fixture::{fixture['id']}::{family_id}",
             vertices,
             indices,
-            materials[discipline],
+            materials["asset_surface"] if colors is not None else materials[discipline],
             _extras(
                 "fixtures",
                 fixture,
-                ["family_id", "room_id", "center_m", "size_m", "yaw_deg", "material"],
+                [
+                    "family_id",
+                    "room_id",
+                    "center_m",
+                    "size_m",
+                    "yaw_deg",
+                    "material",
+                    "geometry_status",
+                    "asset_uid",
+                    "asset_license",
+                    "asset_source_uri",
+                ],
             ),
+            colors=colors,
         )
 
     for connection in graph.get("vertical_connections") or []:

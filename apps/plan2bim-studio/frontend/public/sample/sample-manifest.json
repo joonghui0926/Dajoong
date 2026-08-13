@@ -1,0 +1,31 @@
+{
+  "schema_version": "dajoong.studio-sample.v1",
+  "sample_id": "reviewed-cubi-020@2c9092e12dd2",
+  "revision": "0180d371766ba27b",
+  "content_contract": {
+    "profile": "full_editable_bim",
+    "whole_sheet_reviewed": true,
+    "omission_scan_completed": true,
+    "counts": {
+      "walls": 17,
+      "openings": 22,
+      "rooms": 16,
+      "fixtures": 65
+    }
+  },
+  "reviewed_source": {
+    "sha256": "2c9092e12dd22207b1ab41d7660534d73f4b341121d279685307ba20597da5d6",
+    "width_px": 1913,
+    "height_px": 1664
+  },
+  "display_source": {
+    "path": "/sample/source.webp",
+    "sha256": "e589083031239486de2b728423de81c4792e4e20d5ab5a60ef98e7d33811c589",
+    "derived_from_reviewed_source": true
+  },
+  "graph": {
+    "path": "/sample/03-plan-graph.json",
+    "sha256": "0180d371766ba27bba60bba7e7ee87f70f23e5fcdf77678a8ed17107e87a8366",
+    "source_image_sha256": "2c9092e12dd22207b1ab41d7660534d73f4b341121d279685307ba20597da5d6"
+  }
+}

@@ -22,6 +22,11 @@ from scipy import ndimage
 
 from .core.hashing import sha256_file, sha256_json
 from .core.model.aec_decode import PixelLineProposal, PixelRoomProposal, PixelSymbolProposal
+from .semantic_junction_decode import (
+    JunctionDetection,
+    decode_icon_junctions,
+    decode_opening_junctions,
+)
 
 
 class SemanticDetection(BaseModel):
@@ -33,6 +38,7 @@ class SemanticDetection(BaseModel):
     bbox_px: tuple[int, int, int, int]
     confidence: float = Field(ge=0, le=1)
     pixel_area: int = Field(ge=1)
+    evidence_mode: str = "segmentation_component"
     review_required: bool
     promote_to_bim: bool
 
@@ -48,6 +54,14 @@ class SemanticRoom(BaseModel):
     review_required: bool
 
 
+class SemanticWallVector(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    start_px: tuple[float, float]
+    end_px: tuple[float, float]
+    thickness_px: float = Field(gt=0)
+
+
 class SemanticRecognitionResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -57,15 +71,19 @@ class SemanticRecognitionResult(BaseModel):
     input_mode: str = "raster_only"
     model_version: str
     model_sha256: str
+    decoder_version: str = "dajoong-semantic-junction-decoder-v2"
+    decoder_settings: dict[str, float | int] = Field(default_factory=dict)
     license_scope: str
     production_authorized: bool
     source_size: tuple[int, int]
     model_input_size: tuple[int, int]
     wall_pixels: int
     wall_centerlines_px: list[tuple[float, float, float, float]] = Field(default_factory=list)
+    wall_vectors_px: list[SemanticWallVector] = Field(default_factory=list)
     detections: list[SemanticDetection]
     rooms: list[SemanticRoom] = Field(default_factory=list)
     counts: dict[str, int]
+    evidence_counts: dict[str, int] = Field(default_factory=dict)
     room_counts: dict[str, int] = Field(default_factory=dict)
     inference_ms: float
     total_ms: float
@@ -90,6 +108,112 @@ _SYMBOL_CLASS = {
     "Bathtub": "bathtub",
     "Chimney": "chimney",
 }
+
+
+def _bbox_iou(
+    left: tuple[int, int, int, int],
+    right: tuple[int, int, int, int],
+) -> float:
+    x0 = max(left[0], right[0])
+    y0 = max(left[1], right[1])
+    x1 = min(left[2], right[2])
+    y1 = min(left[3], right[3])
+    intersection = max(0, x1 - x0) * max(0, y1 - y0)
+    if intersection <= 0:
+        return 0.0
+    left_area = max(1, (left[2] - left[0]) * (left[3] - left[1]))
+    right_area = max(1, (right[2] - right[0]) * (right[3] - right[1]))
+    return intersection / (left_area + right_area - intersection)
+
+
+def _merge_junction_detections(
+    detections: list[SemanticDetection],
+    junctions: list[JunctionDetection],
+    *,
+    icon_classes: tuple[str, ...],
+) -> list[SemanticDetection]:
+    """Fuse segmentation and geometric evidence without duplicating one object."""
+
+    output = list(detections)
+    claimed_existing: set[int] = set()
+    for junction in sorted(junctions, key=lambda item: item.confidence, reverse=True):
+        if not 0 < junction.class_index < len(icon_classes):
+            continue
+        class_name = icon_classes[junction.class_index]
+        symbol_class = _SYMBOL_CLASS[class_name]
+        left, top, right, bottom = junction.bbox_px
+        width = right - left
+        height = bottom - top
+        geometry_complete = not (
+            junction.evidence_mode == "four_corner_heatmap" and min(width, height) < 6
+        )
+        center = ((left + right) / 2, (top + bottom) / 2)
+        matching_index = None
+        matching_score = 0.0
+        for index, item in enumerate(output):
+            if index in claimed_existing:
+                continue
+            if item.class_name != class_name:
+                continue
+            item_left, item_top, item_right, item_bottom = item.bbox_px
+            item_center = (
+                (item_left + item_right) / 2,
+                (item_top + item_bottom) / 2,
+            )
+            diagonal = max(
+                12.0,
+                math.hypot(right - left, bottom - top),
+                math.hypot(item_right - item_left, item_bottom - item_top),
+            )
+            overlap = _bbox_iou(junction.bbox_px, item.bbox_px)
+            distance_score = max(0.0, 1.0 - math.dist(center, item_center) / (diagonal * 0.4))
+            score = max(overlap, distance_score)
+            if score > matching_score and (overlap >= 0.12 or distance_score >= 0.45):
+                matching_score = score
+                matching_index = index
+        if matching_index is None:
+            confidence = junction.confidence
+            # Four independent corners are only complete geometry when they span
+            # both image axes. Near-collinear peaks remain review evidence but
+            # cannot become a thin, false BIM object.
+            review_required = confidence < 0.68 or not geometry_complete
+            output.append(
+                SemanticDetection(
+                    id=f"semantic:junction:{junction.class_index}:{len(output)}",
+                    class_name=class_name,
+                    symbol_class=symbol_class,
+                    bbox_px=junction.bbox_px,
+                    confidence=confidence,
+                    pixel_area=junction.pixel_area,
+                    evidence_mode=junction.evidence_mode,
+                    review_required=review_required,
+                    promote_to_bim=not review_required,
+                )
+            )
+            claimed_existing.add(len(output) - 1)
+            continue
+        existing = output[matching_index]
+        confidence = max(existing.confidence, junction.confidence)
+        pixel_area = max(existing.pixel_area, junction.pixel_area)
+        independently_corroborated = (
+            geometry_complete
+            and existing.evidence_mode == "segmentation_component"
+            and junction.evidence_mode == "four_corner_heatmap"
+        )
+        review_threshold = 0.64 if independently_corroborated else 0.68
+        review_required = confidence < review_threshold or not geometry_complete
+        output[matching_index] = existing.model_copy(
+            update={
+                "bbox_px": junction.bbox_px,
+                "confidence": confidence,
+                "pixel_area": pixel_area,
+                "evidence_mode": f"{existing.evidence_mode}+{junction.evidence_mode}",
+                "review_required": review_required,
+                "promote_to_bim": not review_required,
+            }
+        )
+        claimed_existing.add(matching_index)
+    return output
 
 
 def _font(size: int) -> ImageFont.ImageFont:
@@ -342,6 +466,18 @@ def _axis_run_segments(
                 if index in claimed:
                     continue
                 previous_start, previous_end = group["runs"][-1][1:]
+                previous_length = previous_end - previous_start
+                current_length = end - start
+                length_ratio = min(previous_length, current_length) / max(
+                    1, previous_length, current_length
+                )
+                # At a T/X junction an orthogonal wall creates a short run that
+                # overlaps the full long-axis run.  Overlap alone would merge both
+                # directions into one component and then discard the actual wall
+                # as an over-thick blob.  Comparable run length keeps direction
+                # identity while still tolerating ordinary endpoint noise.
+                if length_ratio < 0.42:
+                    continue
                 overlap = max(0, min(end, previous_end) - max(start, previous_start))
                 score = overlap / max(1, min(end - start, previous_end - previous_start))
                 if score > best_score:
@@ -522,7 +658,481 @@ def _wall_centerlines(wall_mask: np.ndarray) -> list[tuple[float, float, float, 
             for top, bottom in zip(cuts, cuts[1:], strict=False)
             if bottom - top >= minimum_segment
         )
-    return split_horizontal + split_vertical
+    return [_recenter_wall_segment(line, mask) for line in split_horizontal + split_vertical]
+
+
+def _foreground_runs(values: np.ndarray) -> list[tuple[int, int]]:
+    padded = np.pad(np.asarray(values, dtype=np.int8), (1, 1))
+    changes = np.diff(padded)
+    return list(
+        zip(
+            np.flatnonzero(changes == 1).tolist(),
+            np.flatnonzero(changes == -1).tolist(),
+            strict=True,
+        )
+    )
+
+
+def _wall_cross_sections(
+    line: tuple[float, float, float, float],
+    wall_mask: np.ndarray,
+) -> tuple[list[float], list[float]]:
+    """Measure robust perpendicular midpoints and widths along one wall."""
+
+    x0, y0, x1, y1 = line
+    horizontal = abs(x1 - x0) >= abs(y1 - y0)
+    coordinate = (y0 + y1) / 2 if horizontal else (x0 + x1) / 2
+    start, end = (x0, x1) if horizontal else (y0, y1)
+    length = abs(end - start)
+    sample_count = max(7, min(96, round(length / 8)))
+    # Avoid junctions and caps where the perpendicular run is not wall thickness.
+    margin = min(length * 0.12, 24.0)
+    positions = np.linspace(min(start, end) + margin, max(start, end) - margin, sample_count)
+    maximum_offset = max(24.0, max(wall_mask.shape) * 0.04)
+    midpoints: list[float] = []
+    widths: list[float] = []
+    for position in positions:
+        sample_index = int(np.clip(round(position), 0, wall_mask.shape[1 if horizontal else 0] - 1))
+        values = wall_mask[:, sample_index] if horizontal else wall_mask[sample_index, :]
+        runs = _foreground_runs(values)
+        if not runs:
+            continue
+        containing = [run for run in runs if run[0] <= coordinate < run[1]]
+        candidates = (
+            containing
+            or sorted(
+                runs,
+                key=lambda run: abs(((run[0] + run[1] - 1) / 2) - coordinate),
+            )[:1]
+        )
+        run_start, run_end = candidates[0]
+        midpoint = (run_start + run_end - 1) / 2
+        if abs(midpoint - coordinate) > maximum_offset:
+            continue
+        width = float(run_end - run_start)
+        if width <= 0:
+            continue
+        midpoints.append(float(midpoint))
+        widths.append(width)
+    return midpoints, widths
+
+
+def _recenter_wall_segment(
+    line: tuple[float, float, float, float],
+    wall_mask: np.ndarray,
+) -> tuple[float, float, float, float]:
+    midpoints, widths = _wall_cross_sections(line, wall_mask)
+    if len(midpoints) < 3 or len(widths) < 3:
+        return line
+    center = float(np.median(midpoints))
+    x0, y0, x1, y1 = line
+    if abs(x1 - x0) >= abs(y1 - y0):
+        return x0, center, x1, center
+    return center, y0, center, y1
+
+
+def _wall_vectors(wall_mask: np.ndarray) -> list[SemanticWallVector]:
+    mask = np.asarray(wall_mask, dtype=np.bool_)
+    output: list[SemanticWallVector] = []
+    for line in _wall_centerlines(mask):
+        _, widths = _wall_cross_sections(line, mask)
+        if not widths:
+            continue
+        x0, y0, x1, y1 = line
+        length = math.dist((x0, y0), (x1, y1))
+        thickness = float(np.quantile(widths, 0.35))
+        # Very short split segments can lie entirely inside a T/X junction.
+        # Re-measure a longer collinear support window before deciding that the
+        # junction blob itself is the wall width.
+        if thickness > max(8.0, length * 0.6):
+            extension = max(32.0, thickness * 2.0)
+            if abs(x1 - x0) >= abs(y1 - y0):
+                extended = (
+                    max(0.0, min(x0, x1) - extension),
+                    y0,
+                    min(float(mask.shape[1] - 1), max(x0, x1) + extension),
+                    y1,
+                )
+            else:
+                extended = (
+                    x0,
+                    max(0.0, min(y0, y1) - extension),
+                    x1,
+                    min(float(mask.shape[0] - 1), max(y0, y1) + extension),
+                )
+            _, extended_widths = _wall_cross_sections(extended, mask)
+            if extended_widths:
+                thickness = float(np.quantile(extended_widths, 0.25))
+        if thickness > max(12.0, length):
+            # A segment shorter than its measured cross-section is a junction
+            # fragment, not an independently editable wall.
+            continue
+        output.append(
+            SemanticWallVector(
+                start_px=(line[0], line[1]),
+                end_px=(line[2], line[3]),
+                thickness_px=max(1.0, thickness),
+            )
+        )
+    diagonal = _diagonal_wall_vectors(mask, output)
+    return _merge_collinear_wall_vectors(output) + diagonal
+
+
+def _merge_collinear_wall_vectors(
+    vectors: list[SemanticWallVector],
+) -> list[SemanticWallVector]:
+    """Join raster-fragmented runs that describe one continuous BIM wall.
+
+    Doors and windows interrupt the semantic wall mask. Keeping every visible
+    run as an independent host wall makes the compiler clamp an opening to the
+    end of a short run, moving otherwise accurate source evidence. Only
+    axis-aligned runs on the same narrow center band are joined here; nearby
+    parallel walls remain separate.
+    """
+
+    if len(vectors) < 2:
+        return list(vectors)
+    parent = list(range(len(vectors)))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    geometry: list[tuple[str, float, float, float, float]] = []
+    for vector in vectors:
+        x0, y0 = vector.start_px
+        x1, y1 = vector.end_px
+        horizontal = abs(x1 - x0) >= abs(y1 - y0)
+        if horizontal:
+            geometry.append(
+                (
+                    "horizontal",
+                    (y0 + y1) / 2,
+                    min(x0, x1),
+                    max(x0, x1),
+                    vector.thickness_px,
+                )
+            )
+        else:
+            geometry.append(
+                (
+                    "vertical",
+                    (x0 + x1) / 2,
+                    min(y0, y1),
+                    max(y0, y1),
+                    vector.thickness_px,
+                )
+            )
+
+    for left_index, left in enumerate(geometry):
+        for right_index in range(left_index + 1, len(geometry)):
+            right = geometry[right_index]
+            if left[0] != right[0]:
+                continue
+            center_tolerance = max(3.0, min(left[4], right[4]) * 0.35)
+            if abs(left[1] - right[1]) > center_tolerance:
+                continue
+            gap = max(left[2], right[2]) - min(left[3], right[3])
+            gap_tolerance = max(12.0, max(left[4], right[4]) * 1.2)
+            if gap <= gap_tolerance:
+                union(left_index, right_index)
+
+    groups: dict[int, list[int]] = {}
+    for index in range(len(vectors)):
+        groups.setdefault(find(index), []).append(index)
+    merged: list[SemanticWallVector] = []
+    for indices in groups.values():
+        if len(indices) == 1:
+            merged.append(vectors[indices[0]])
+            continue
+        members = [geometry[index] for index in indices]
+        weights = [max(1.0, member[3] - member[2]) for member in members]
+        center = float(np.average([member[1] for member in members], weights=weights))
+        start = min(member[2] for member in members)
+        end = max(member[3] for member in members)
+        thickness = float(
+            np.average([member[4] for member in members], weights=weights)
+        )
+        if members[0][0] == "horizontal":
+            start_px = (start, center)
+            end_px = (end, center)
+        else:
+            start_px = (center, start)
+            end_px = (center, end)
+        merged.append(
+            SemanticWallVector(
+                start_px=start_px,
+                end_px=end_px,
+                thickness_px=thickness,
+            )
+        )
+    return merged
+
+
+def _recover_unclassified_interior_rooms(
+    rooms: list[SemanticRoom],
+    wall_vectors: list[SemanticWallVector],
+    *,
+    source_size: tuple[int, int],
+) -> list[SemanticRoom]:
+    """Preserve large enclosed areas omitted by the semantic room classifier."""
+
+    width, height = source_size
+    if not wall_vectors or width < 8 or height < 8:
+        return []
+    wall_image = Image.new("1", source_size, 0)
+    wall_draw = ImageDraw.Draw(wall_image)
+    for vector in wall_vectors:
+        wall_draw.line(
+            (*vector.start_px, *vector.end_px),
+            fill=1,
+            width=max(3, round(vector.thickness_px)),
+        )
+    wall_mask = np.asarray(wall_image, dtype=np.bool_)
+    free_labels, component_count = ndimage.label(
+        ~wall_mask,
+        structure=np.ones((3, 3), dtype=np.uint8),
+    )
+    border_labels = set(
+        np.unique(
+            np.concatenate(
+                (
+                    free_labels[0],
+                    free_labels[-1],
+                    free_labels[:, 0],
+                    free_labels[:, -1],
+                )
+            )
+        ).tolist()
+    )
+    enclosed = np.zeros_like(wall_mask)
+    for component in range(1, component_count + 1):
+        if component not in border_labels:
+            enclosed |= free_labels == component
+    if not enclosed.any():
+        return []
+
+    covered_image = Image.new("1", source_size, 0)
+    covered_draw = ImageDraw.Draw(covered_image)
+    for room in rooms:
+        if len(room.polygon_px) >= 3:
+            covered_draw.polygon(room.polygon_px, fill=1)
+    residual = enclosed & ~np.asarray(covered_image, dtype=np.bool_)
+    residual_labels, residual_count = ndimage.label(
+        residual,
+        structure=np.ones((3, 3), dtype=np.uint8),
+    )
+    # A high relative floor-area gate prevents wall-edge slivers and door gaps
+    # from becoming hundreds of fake rooms. Only a materially omitted enclosed
+    # space is preserved as a reviewable, unclassified room.
+    minimum_area = max(1024, round(width * height * 0.01))
+    output: list[SemanticRoom] = []
+    for component in range(1, residual_count + 1):
+        local = residual_labels == component
+        pixel_area = int(local.sum())
+        if pixel_area < minimum_area:
+            continue
+        loop = _mask_outer_loop(local)
+        polygon = _simplify_loop(loop, tolerance=2.0)
+        if len(polygon) < 3 or _polygon_area(polygon) < minimum_area:
+            continue
+        output.append(
+            SemanticRoom(
+                id=f"semantic:room:unclassified:{len(output)}",
+                class_name="Unclassified interior",
+                polygon_px=polygon,
+                confidence=0.5,
+                pixel_area=pixel_area,
+                review_required=True,
+            )
+        )
+    return output
+
+
+def _diagonal_wall_vectors(
+    wall_mask: np.ndarray,
+    axis_vectors: list[SemanticWallVector],
+) -> list[SemanticWallVector]:
+    """Recover non-orthogonal wall runs left after axis-vector coverage."""
+
+    height, width = wall_mask.shape
+    coverage_image = Image.new("1", (width, height), 0)
+    coverage_draw = ImageDraw.Draw(coverage_image)
+    for vector in axis_vectors:
+        coverage_draw.line(
+            (*vector.start_px, *vector.end_px),
+            fill=1,
+            width=max(3, round(vector.thickness_px + 6)),
+        )
+    coverage = np.asarray(coverage_image, dtype=np.bool_)
+    distance_to_axis = ndimage.distance_transform_edt(~coverage)
+    residual = wall_mask & ~coverage
+    labels, component_count = ndimage.label(
+        residual,
+        structure=np.ones((3, 3), dtype=np.uint8),
+    )
+    minimum_length = max(18.0, max(wall_mask.shape) * 0.01)
+    output: list[SemanticWallVector] = []
+    for component_index in range(1, component_count + 1):
+        y, x = np.nonzero(labels == component_index)
+        if len(x) < minimum_length * 2:
+            continue
+        points = np.column_stack((x, y)).astype(np.float64)
+        center = points.mean(axis=0)
+        covariance = np.cov(points - center, rowvar=False)
+        eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+        if eigenvalues[1] <= 1e-9 or eigenvalues[1] / max(eigenvalues[0], 1e-9) < 5.0:
+            continue
+        direction = eigenvectors[:, 1]
+        angle = abs(math.degrees(math.atan2(direction[1], direction[0]))) % 90
+        angle_to_axis = min(angle, 90 - angle)
+        if angle_to_axis < 10.0:
+            continue
+        normal = np.asarray((-direction[1], direction[0]))
+        along = (points - center) @ direction
+        across = (points - center) @ normal
+        low, high = np.quantile(along, (0.02, 0.98))
+        length = float(high - low)
+        if length < minimum_length:
+            continue
+        thickness = float(np.quantile(across, 0.9) - np.quantile(across, 0.1) + 1)
+        if thickness <= 1 or thickness > length * 0.65:
+            continue
+        start = center + direction * low
+        end = center + direction * high
+        connection_tolerance = max(12.0, thickness * 1.5)
+        start_index = (
+            int(np.clip(round(start[1]), 0, height - 1)),
+            int(np.clip(round(start[0]), 0, width - 1)),
+        )
+        end_index = (
+            int(np.clip(round(end[1]), 0, height - 1)),
+            int(np.clip(round(end[0]), 0, width - 1)),
+        )
+        if (
+            distance_to_axis[start_index] > connection_tolerance
+            or distance_to_axis[end_index] > connection_tolerance
+        ):
+            # Detached title-block graphics and nearby reference plans can also
+            # be elongated.  A building wall must join the accepted wall graph
+            # at both ends before residual geometry is promoted.
+            continue
+        output.append(
+            SemanticWallVector(
+                start_px=(float(start[0]), float(start[1])),
+                end_px=(float(end[0]), float(end[1])),
+                thickness_px=thickness,
+            )
+        )
+    return output
+
+
+def _refine_wall_vectors_from_raster(
+    source_gray: np.ndarray,
+    vectors: list[SemanticWallVector],
+) -> list[SemanticWallVector]:
+    """Align accepted semantic walls to robust source-raster cross sections."""
+
+    gray = np.asarray(source_gray, dtype=np.uint8)
+    height, width = gray.shape
+    output: list[SemanticWallVector] = []
+    for vector in vectors:
+        start = np.asarray(vector.start_px, dtype=np.float64)
+        end = np.asarray(vector.end_px, dtype=np.float64)
+        delta = end - start
+        length = float(np.linalg.norm(delta))
+        if length < 8:
+            output.append(vector)
+            continue
+        direction = delta / length
+        normal = np.asarray((-direction[1], direction[0]), dtype=np.float64)
+        sample_count = max(9, min(96, round(length / 10)))
+        samples = np.linspace(0.12, 0.88, sample_count)
+        search_radius = max(8.0, vector.thickness_px * 1.25)
+        offset_count = max(17, round(search_radius * 2) + 1)
+        offsets = np.linspace(-search_radius, search_radius, offset_count)
+        midpoints: list[float] = []
+        spans: list[float] = []
+        expected_half_width = max(2.0, vector.thickness_px * 0.75)
+        for fraction in samples:
+            center = start + delta * fraction
+            coordinates = center[None, :] + offsets[:, None] * normal[None, :]
+            x = np.clip(np.rint(coordinates[:, 0]).astype(int), 0, width - 1)
+            y = np.clip(np.rint(coordinates[:, 1]).astype(int), 0, height - 1)
+            darkness = gray[y, x] < 180
+            runs = _foreground_runs(darkness)
+            relevant = []
+            for run_start, run_end in runs:
+                run_offsets = offsets[run_start:run_end]
+                if not len(run_offsets):
+                    continue
+                if run_offsets[-1] < -expected_half_width or run_offsets[0] > expected_half_width:
+                    continue
+                relevant.append((float(run_offsets[0]), float(run_offsets[-1])))
+            if not relevant:
+                continue
+            lower = min(item[0] for item in relevant)
+            upper = max(item[1] for item in relevant)
+            span = upper - lower + (offsets[1] - offsets[0])
+            if span < max(2.0, vector.thickness_px * 0.3):
+                continue
+            if span > max(12.0, vector.thickness_px * 2.2):
+                continue
+            midpoints.append((lower + upper) / 2)
+            spans.append(float(span))
+        if len(midpoints) < max(4, sample_count // 4):
+            output.append(vector)
+            continue
+        normal_shift = float(np.median(midpoints))
+        if abs(normal_shift) > max(8.0, vector.thickness_px * 0.7):
+            output.append(vector)
+            continue
+        band_offsets = np.linspace(
+            -vector.thickness_px / 2,
+            vector.thickness_px / 2,
+            max(5, round(vector.thickness_px) + 1),
+        )
+
+        def alignment_score(
+            shift: float,
+            *,
+            base_start: np.ndarray = start,
+            sample_fractions: np.ndarray = samples,
+            base_delta: np.ndarray = delta,
+            offsets: np.ndarray = band_offsets,
+            base_normal: np.ndarray = normal,
+        ) -> float:
+            centers = base_start[None, :] + sample_fractions[:, None] * base_delta[None, :]
+            coordinates = (
+                centers[:, None, :] + (offsets[None, :, None] + shift) * base_normal[None, None, :]
+            )
+            x = np.clip(np.rint(coordinates[..., 0]).astype(int), 0, width - 1)
+            y = np.clip(np.rint(coordinates[..., 1]).astype(int), 0, height - 1)
+            return float((gray[y, x] < 180).mean())
+
+        baseline_score = alignment_score(0.0)
+        refined_score = alignment_score(normal_shift)
+        if refined_score < baseline_score + 0.04:
+            output.append(vector)
+            continue
+        shifted_start = start + normal * normal_shift
+        shifted_end = end + normal * normal_shift
+        output.append(
+            SemanticWallVector(
+                start_px=(float(shifted_start[0]), float(shifted_start[1])),
+                end_px=(float(shifted_end[0]), float(shifted_end[1])),
+                thickness_px=vector.thickness_px,
+            )
+        )
+    return output
 
 
 class OnnxFloorPlanSemanticRecognizer:
@@ -660,9 +1270,34 @@ class OnnxFloorPlanSemanticRecognizer:
                 )
             )
         detections = [item for item in detections if item.id not in consumed] + fused
+        icon_junctions = decode_icon_junctions(
+            prediction[:21],
+            icon_probability,
+            source_size=source.size,
+        )
+        detections = _merge_junction_detections(
+            detections,
+            icon_junctions,
+            icon_classes=self.icon_classes,
+        )
+        opening_junctions = decode_opening_junctions(
+            prediction[:21],
+            icon_probability,
+            room_class == 2,
+            source_size=source.size,
+        )
+        detections = _merge_junction_detections(
+            detections,
+            opening_junctions,
+            icon_classes=self.icon_classes,
+        )
         counts = {
             name: sum(item.class_name == name for item in detections)
             for name in self.icon_classes[1:]
+        }
+        evidence_counts = {
+            mode: sum(item.evidence_mode == mode for item in detections)
+            for mode in sorted({item.evidence_mode for item in detections})
         }
         rooms: list[SemanticRoom] = []
         minimum_room_area = max(96, round(width * height * 0.0008))
@@ -688,9 +1323,21 @@ class OnnxFloorPlanSemanticRecognizer:
                         review_required=(confidence < 0.52 or pixel_area < minimum_room_area * 1.5),
                     )
                 )
+        wall_mask = room_original == 2
+        wall_vectors = _refine_wall_vectors_from_raster(
+            np.asarray(source.convert("L"), dtype=np.uint8),
+            _wall_vectors(wall_mask),
+        )
+        rooms.extend(
+            _recover_unclassified_interior_rooms(
+                rooms,
+                wall_vectors,
+                source_size=source.size,
+            )
+        )
         room_counts = {
             name: sum(item.class_name == name for item in rooms)
-            for name in self.room_classes
+            for name in (*self.room_classes, "Unclassified interior")
             if name not in {"Background", "Outdoor", "Wall", "Railing"}
         }
         result = SemanticRecognitionResult(
@@ -698,20 +1345,23 @@ class OnnxFloorPlanSemanticRecognizer:
             input_sha256=sha256_file(source_path),
             model_version=self.model_version,
             model_sha256=self.model_sha256,
+            decoder_settings={"junction_threshold": 0.4, "maximum_peaks_per_channel": 100},
             license_scope=str(self.manifest.get("license_scope") or "unknown"),
             production_authorized=bool(self.manifest.get("production_authorized", False)),
             source_size=source.size,
             model_input_size=(width, height),
-            wall_pixels=int((room_original == 2).sum()),
-            wall_centerlines_px=_wall_centerlines(room_original == 2),
+            wall_pixels=int(wall_mask.sum()),
+            wall_centerlines_px=[(*vector.start_px, *vector.end_px) for vector in wall_vectors],
+            wall_vectors_px=wall_vectors,
             detections=detections,
             rooms=rooms,
             counts=counts,
+            evidence_counts=evidence_counts,
             room_counts=room_counts,
             inference_ms=round(inference_ms, 3),
             total_ms=round((time.perf_counter() - started) * 1000, 3),
         ).finalize()
-        return result, room_original == 2
+        return result, wall_mask
 
     @staticmethod
     def wall_proposals(
@@ -719,63 +1369,29 @@ class OnnxFloorPlanSemanticRecognizer:
         *,
         source_ref_ids: list[str],
     ) -> list[PixelLineProposal]:
-        lines = list(result.wall_centerlines_px)
-
-        def supported(center_x: float, center_y: float) -> bool:
-            for x0, y0, x1, y1 in lines:
-                delta_x, delta_y = x1 - x0, y1 - y0
-                length_squared = delta_x * delta_x + delta_y * delta_y
-                if length_squared <= 1e-9:
-                    continue
-                fraction = ((center_x - x0) * delta_x + (center_y - y0) * delta_y) / length_squared
-                if not 0 <= fraction <= 1:
-                    continue
-                nearest_x = x0 + fraction * delta_x
-                nearest_y = y0 + fraction * delta_y
-                if np.hypot(center_x - nearest_x, center_y - nearest_y) <= 35.0:
-                    return True
-            return False
-
-        source_width, source_height = result.source_size
-        for detection in result.detections:
-            if not detection.promote_to_bim or detection.symbol_class not in {"door", "window"}:
-                continue
-            left, top, right, bottom = detection.bbox_px
-            center_x, center_y = (left + right) / 2, (top + bottom) / 2
-            if supported(center_x, center_y):
-                continue
-            margin = 24.0
-            if right - left >= bottom - top:
-                lines.append(
-                    (
-                        max(0.0, left - margin),
-                        center_y,
-                        min(float(source_width), right + margin),
-                        center_y,
-                    )
-                )
-            else:
-                lines.append(
-                    (
-                        center_x,
-                        max(0.0, top - margin),
-                        center_x,
-                        min(float(source_height), bottom + margin),
-                    )
-                )
+        vectors: list[tuple[tuple[float, float, float, float], float | None]] = [
+            (
+                (*vector.start_px, *vector.end_px),
+                vector.thickness_px,
+            )
+            for vector in result.wall_vectors_px
+        ]
+        if not vectors:
+            vectors = [(line, None) for line in result.wall_centerlines_px]
 
         return [
             PixelLineProposal(
                 id=f"semantic:wall:{index}",
                 start_px=(line[0], line[1]),
                 end_px=(line[2], line[3]),
+                thickness_px=thickness_px,
                 confidence=0.82,
                 uncertainty=0.18,
                 source_ref_ids=source_ref_ids,
-                model_version=result.model_version,
+                model_version=f"{result.model_version}+{result.decoder_version}",
                 review_required=True,
             )
-            for index, line in enumerate(lines)
+            for index, (line, thickness_px) in enumerate(vectors)
         ]
 
     @staticmethod
@@ -798,7 +1414,7 @@ class OnnxFloorPlanSemanticRecognizer:
                     confidence=detection.confidence,
                     uncertainty=1.0 - detection.confidence,
                     source_ref_ids=source_ref_ids,
-                    model_version=result.model_version,
+                    model_version=f"{result.model_version}+{result.decoder_version}",
                     review_required=detection.review_required,
                 )
             )
@@ -819,7 +1435,7 @@ class OnnxFloorPlanSemanticRecognizer:
                 confidence=room.confidence,
                 uncertainty=1.0 - room.confidence,
                 source_ref_ids=source_ref_ids,
-                model_version=result.model_version,
+                model_version=f"{result.model_version}+{result.decoder_version}",
                 review_required=room.review_required,
             )
             for index, room in enumerate(result.rooms)

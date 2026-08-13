@@ -17,7 +17,7 @@ jobs:
       run:
         working-directory: apps/plan2bim-studio/frontend
     env:
-      VITE_STUDIO_API_URL: https://studio-api.builiconstruction.com
+      VITE_STUDIO_API_URL: https://studio-api.dajoongbim.com
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
