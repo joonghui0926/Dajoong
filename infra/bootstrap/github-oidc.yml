@@ -11,6 +11,14 @@ Parameters:
   GitHubEnvironment:
     Type: String
     Default: production
+  GitHubOwnerSubject:
+    Type: String
+    Default: joonghui0926@182336962
+    Description: Immutable GitHub OIDC owner subject used by this account.
+  GitHubRepositorySubject:
+    Type: String
+    Default: Dajoong@1329076853
+    Description: Immutable GitHub OIDC repository subject used by this repository.
   CreateGitHubOidcProvider:
     Type: String
     Default: "true"
@@ -92,10 +100,11 @@ Resources:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
               StringLike:
-                # GitHub can issue a ref or environment subject depending on the
-                # calling workflow. Keep the boundary at this repository while
-                # the GitHub production environment remains the deployment gate.
-                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOwner}/${GitHubRepository}:*
+                # GitHub emits immutable ID-backed subjects for this account.
+                # Accept that form and the standard form, but no other repository.
+                token.actions.githubusercontent.com:sub:
+                  - !Sub repo:${GitHubOwnerSubject}/${GitHubRepositorySubject}:*
+                  - !Sub repo:${GitHubOwner}/${GitHubRepository}:*
       Policies:
         - PolicyName: dajoong-production-deployment
           PolicyDocument:
