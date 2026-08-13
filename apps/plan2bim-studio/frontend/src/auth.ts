@@ -1,7 +1,7 @@
 import { App as CapacitorApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
-import { UserManager, type INavigator, type IWindow, type NavigateParams, type NavigateResponse } from "oidc-client-ts";
+import { UserManager, WebStorageStateStore, type INavigator, type IWindow, type NavigateParams, type NavigateResponse } from "oidc-client-ts";
 import { isTrustedStudioApiRequest } from "./serverApi";
 
 const authority = import.meta.env.VITE_COGNITO_AUTHORITY;
@@ -9,6 +9,7 @@ const clientId = import.meta.env.VITE_COGNITO_CLIENT_ID;
 const native = Capacitor.isNativePlatform();
 const nativeRedirectUri = import.meta.env.VITE_NATIVE_REDIRECT_URI || "com.dajoong.plan2bim://auth/callback";
 const nativeLogoutUri = import.meta.env.VITE_NATIVE_LOGOUT_URI || "com.dajoong.plan2bim://auth/logout";
+const browserStorageAvailable = typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 const redirectUri = native
   ? nativeRedirectUri
   : import.meta.env.VITE_COGNITO_REDIRECT_URI || `${window.location.origin}/studio`;
@@ -71,9 +72,12 @@ const settings = authConfigured ? {
   response_type: "code",
   scope: "openid email profile",
   automaticSilentRenew: !native,
+  ...(browserStorageAvailable
+    ? { userStore: new WebStorageStateStore({ store: window.localStorage }) }
+    : {}),
 } : null;
 
-export const userManager = settings
+export const userManager = settings && browserStorageAvailable
   ? new UserManager(settings, native ? new NativeRedirectNavigator() : undefined)
   : null;
 
