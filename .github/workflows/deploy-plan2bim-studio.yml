@@ -54,9 +54,17 @@ jobs:
           TOSS_CLIENT_KEY: ${{ secrets.TOSS_CLIENT_KEY }}
         run: |
           set -euo pipefail
-          for name in AWS_DEPLOY_ROLE_ARN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID MODEL_BUNDLE_URI MODEL_BUNDLE_SHA256 STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET; do
+          for name in AWS_DEPLOY_ROLE_ARN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID MODEL_BUNDLE_URI MODEL_BUNDLE_SHA256; do
             test -n "${!name:-}" || { echo "Missing production setting: $name" >&2; exit 1; }
           done
+          stripe_ready=false
+          toss_ready=false
+          test -n "${STRIPE_SECRET_KEY:-}" && test -n "${STRIPE_WEBHOOK_SECRET:-}" && stripe_ready=true
+          test -n "${TOSS_CLIENT_KEY:-}" && test -n "${TOSS_SECRET_KEY:-}" && toss_ready=true
+          if [[ "$stripe_ready" != "true" && "$toss_ready" != "true" ]]; then
+            echo "Configure either Stripe (secret + webhook) or Toss Payments (client + secret) before production deployment" >&2
+            exit 1
+          fi
           for group in \
             "GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET" \
             "APPLE_SERVICE_ID APPLE_TEAM_ID APPLE_SIGN_IN_KEY_ID APPLE_SIGN_IN_PRIVATE_KEY" \
@@ -137,8 +145,12 @@ jobs:
             printf '%s' "$secret_arn"
           }
 
-          stripe_secret_arn=$(upsert_secret "dajoong/plan2bim/production/stripe-secret-key" "$STRIPE_SECRET_KEY")
-          stripe_webhook_arn=$(upsert_secret "dajoong/plan2bim/production/stripe-webhook-secret" "$STRIPE_WEBHOOK_SECRET")
+          stripe_secret_arn=""
+          stripe_webhook_arn=""
+          if [[ -n "$STRIPE_SECRET_KEY" && -n "$STRIPE_WEBHOOK_SECRET" ]]; then
+            stripe_secret_arn=$(upsert_secret "dajoong/plan2bim/production/stripe-secret-key" "$STRIPE_SECRET_KEY")
+            stripe_webhook_arn=$(upsert_secret "dajoong/plan2bim/production/stripe-webhook-secret" "$STRIPE_WEBHOOK_SECRET")
+          fi
           toss_secret_arn=""
           if [[ -n "$TOSS_SECRET_KEY" ]]; then
             toss_secret_arn=$(upsert_secret "dajoong/plan2bim/production/toss-secret-key" "$TOSS_SECRET_KEY")

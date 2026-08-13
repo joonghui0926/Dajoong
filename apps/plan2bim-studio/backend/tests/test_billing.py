@@ -62,6 +62,23 @@ def test_paid_order_grants_once_and_country_changes_payment_rail(
     assert account.paid_units == 2
 
 
+def test_toss_customer_key_is_stable_and_does_not_expose_account_id(
+    service: BillingService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DAJOONG_TOSS_CLIENT_KEY", "test_ck_example")
+    monkeypatch.setenv("DAJOONG_TOSS_SECRET_KEY", "test_sk_example")
+    first, _ = service.create_order("private-account-id", "toss", "KR", 1)
+    second, _ = service.create_order("private-account-id", "toss", "KR", 2)
+
+    first_key = service.toss_prepare(first)["customer_key"]
+    second_key = service.toss_prepare(second)["customer_key"]
+
+    assert first_key == second_key
+    assert "private-account-id" not in first_key
+    assert len(first_key) <= 50
+
+
 def test_checkout_context_exposes_reproducible_speed_evidence(
     service: BillingService,
 ) -> None:

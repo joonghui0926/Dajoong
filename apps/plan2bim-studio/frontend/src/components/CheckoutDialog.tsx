@@ -63,6 +63,7 @@ export function CheckoutDialog({ context, requiredUnits, onClose, onPaid, onCont
   const [error, setError] = useState("");
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [plan, setPlan] = useState<PurchasePlan>("per_drawing");
+  const [paymentTermsAccepted, setPaymentTermsAccepted] = useState(false);
   const onPaidRef = useRef(onPaid);
   const countryRequestRef = useRef(0);
   const paymentInFlightRef = useRef(false);
@@ -73,6 +74,7 @@ export function CheckoutDialog({ context, requiredUnits, onClose, onPaid, onCont
   const conversionCovered = activeContext.free_units_remaining >= requiredUnits
     || activeContext.paid_units >= requiredUnits
     || activeContext.unlimited_active;
+  const requiresDirectPaymentTerms = method === "kakao" || method === "toss";
   const baselineCredits = context.paid_units;
 
   useEffect(() => {
@@ -141,6 +143,10 @@ export function CheckoutDialog({ context, requiredUnits, onClose, onPaid, onCont
 
   const beginPayment = async () => {
     if (paymentInFlightRef.current) return;
+    if (requiresDirectPaymentTerms && !paymentTermsAccepted) {
+      setError("Please accept the required payment terms before continuing.");
+      return;
+    }
     paymentInFlightRef.current = true;
     setBusy(true);
     setError("");
@@ -297,6 +303,22 @@ export function CheckoutDialog({ context, requiredUnits, onClose, onPaid, onCont
             ))}
           </div>
 
+          {requiresDirectPaymentTerms ? (
+            <label className="checkout-provider-consent">
+              <input
+                type="checkbox"
+                checked={paymentTermsAccepted}
+                onChange={(event) => setPaymentTermsAccepted(event.target.checked)}
+              />
+              <span>
+                I agree to the required Toss Payments
+                {" "}<a href="https://pages.tosspayments.com/terms/user" target="_blank" rel="noreferrer">electronic finance terms</a>,
+                {" "}<a href="https://pages.tosspayments.com/terms/privacy/consent1" target="_blank" rel="noreferrer">privacy collection</a>, and
+                {" "}<a href="https://pages.tosspayments.com/terms/privacy/consent2" target="_blank" rel="noreferrer">third-party provision</a>.
+              </span>
+            </label>
+          ) : null}
+
           {activeContext.configured_providers.length === 0 ? (
             <div className="checkout-provider-note">
               <RotateCcw size={16} /> Payment keys are not connected in this environment yet.
@@ -316,7 +338,7 @@ export function CheckoutDialog({ context, requiredUnits, onClose, onPaid, onCont
             className="checkout-pay"
             type="button"
             hidden={Boolean(onContinue && conversionCovered)}
-            disabled={busy || waiting || activeContext.configured_providers.length === 0}
+            disabled={busy || waiting || activeContext.configured_providers.length === 0 || (requiresDirectPaymentTerms && !paymentTermsAccepted)}
             onClick={() => void beginPayment()}
           >
             {busy || waiting ? <LoaderCircle className="spin" size={18} /> : <LockKeyhole size={17} />}

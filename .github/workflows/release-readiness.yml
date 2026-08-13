@@ -52,9 +52,14 @@ jobs:
         run: |
           set -euo pipefail
           export AWS_DEPLOY_ROLE_ARN='${{ vars.AWS_DEPLOY_ROLE_ARN }}'
-          for name in AWS_DEPLOY_ROLE_ARN MODEL_BUNDLE_URI MODEL_BUNDLE_SHA256 CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET; do
+          for name in AWS_DEPLOY_ROLE_ARN MODEL_BUNDLE_URI MODEL_BUNDLE_SHA256 CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
             test -n "${!name:-}" || { echo "Missing production setting: $name" >&2; exit 1; }
           done
+          if ! { test -n "${STRIPE_SECRET_KEY:-}" && test -n "${STRIPE_WEBHOOK_SECRET:-}"; } \
+            && ! { test -n "${TOSS_CLIENT_KEY:-}" && test -n "${TOSS_SECRET_KEY:-}"; }; then
+            echo "Configure a complete Stripe or Toss Payments live-key pair" >&2
+            exit 1
+          fi
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}

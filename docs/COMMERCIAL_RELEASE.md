@@ -53,7 +53,7 @@ Register that URL with Google, Apple, and Kakao before the first deployment.
 | Google login | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` |
 | Apple login | `APPLE_SERVICE_ID`, `APPLE_SIGN_IN_KEY_ID`, `APPLE_SIGN_IN_PRIVATE_KEY` |
 | Kakao login | `KAKAO_OIDC_CLIENT_ID`, `KAKAO_OIDC_CLIENT_SECRET` |
-| Payments | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `TOSS_SECRET_KEY`, `TOSS_CLIENT_KEY` |
+| Payments | Complete one provider pair: `TOSS_SECRET_KEY` + `TOSS_CLIENT_KEY`, or `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` |
 | Android signing | `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_PASSWORD` |
 | Google Play | `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` |
 | Apple signing | `APPLE_DISTRIBUTION_CERTIFICATE_BASE64`, `APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD` |
@@ -68,6 +68,12 @@ The deployment copies payment server keys into AWS Secrets Manager and passes
 only their ARNs to App Runner. Team invitation tokens are hashed at rest. If an
 SES sender is not configured, administrators can still copy the one-time secure
 invitation link from the People panel.
+
+For a Korea-first Toss-only launch, Stripe is optional. Configure the matching
+Toss live client and secret key with `scripts/configure_toss_production.ps1`.
+Register the verified settlement account in the Toss merchant manager; never
+store a bank account number in this repository. See
+`TOSS_LIVE_PAYMENT_HANDOFF.md` for the minimal owner handoff.
 
 ## Release order
 

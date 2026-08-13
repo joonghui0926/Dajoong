@@ -5,7 +5,6 @@ import hashlib
 import hmac
 import json
 import os
-import secrets
 import threading
 import time
 import uuid
@@ -836,7 +835,14 @@ class BillingService:
         return_origin = os.environ.get(
             "DAJOONG_CHECKOUT_RETURN_ORIGIN", "https://studio.dajoongbim.com"
         ).rstrip("/")
-        customer_key = f"customer_{secrets.token_urlsafe(18)}"
+        # A stable, opaque customer key lets the payment provider recognize a
+        # returning buyer without exposing the Dajoong account identifier.
+        customer_digest = hmac.new(
+            os.environ["DAJOONG_TOSS_SECRET_KEY"].encode(),
+            order.account_id.encode(),
+            hashlib.sha256,
+        ).hexdigest()[:32]
+        customer_key = f"customer_{customer_digest}"
         return {
             "client_key": os.environ["DAJOONG_TOSS_CLIENT_KEY"],
             "customer_key": customer_key,
