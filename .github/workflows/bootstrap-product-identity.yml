@@ -94,9 +94,9 @@ jobs:
           user_pool_id=$(terraform -chdir=apps/plan2bim-studio/infra/terraform output -raw user_pool_id)
           providers=$(aws cognito-idp describe-user-pool-client \
             --user-pool-id "$user_pool_id" --client-id "$client_id" \
-            --query 'UserPoolClient.SupportedIdentityProviders' --output text)
-          [[ " $providers " == *" Google "* ]] && google=true || google=false
-          [[ " $providers " == *" Kakao "* ]] && kakao=true || kakao=false
+            --query 'UserPoolClient.SupportedIdentityProviders' --output json)
+          jq -e 'index("Google") != null' <<<"$providers" >/dev/null && google=true || google=false
+          jq -e 'index("Kakao") != null' <<<"$providers" >/dev/null && kakao=true || kakao=false
           npm ci --prefix apps/plan2bim-studio/frontend
           ANDROID_APP_LINK_SHA256="${{ vars.ANDROID_APP_LINK_SHA256 }}" \
             npm run links:prepare --prefix apps/plan2bim-studio/frontend
