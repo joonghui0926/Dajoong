@@ -165,7 +165,7 @@ jobs:
         run: npm run build && npx cap sync android
       - name: Build the signed Play App Bundle
         working-directory: apps/plan2bim-studio/frontend/android
-        run: ./gradlew bundleRelease --no-daemon --stacktrace
+        run: bash gradlew bundleRelease --no-daemon --stacktrace
       - name: Generate verified store screenshots
         run: npx playwright install --with-deps chromium && npm run store:screenshots
       - uses: actions/upload-artifact@v4
